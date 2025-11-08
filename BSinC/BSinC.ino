@@ -100,7 +100,7 @@ board.SDA (GPIO2)
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7796S_kbv.h>
-#include <Adafruit_ImageReader_LittleFS.h>
+//#include <Adafruit_ImageReader_LittleFS.h>
 #include <LittleFS.h>
 #include <string.h>
 
@@ -300,7 +300,7 @@ void setup()
 
 void loop() 
 {
-
+#if 0
   // Look for button press
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
@@ -427,5 +427,5 @@ void loop()
       digitalWrite(VIBE_MOTOR_PIN, LOW);
     }
   }
-
+#endif
 }
