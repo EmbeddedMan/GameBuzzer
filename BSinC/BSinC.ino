@@ -160,7 +160,7 @@ uint32_t next_sync_time;
 uint32_t hc_btn_push_time;
 uint32_t hc_btn_push_time_ms;
 uint32_t packet_rx_resume_time;
-bool old_btn;
+uint32_t btn_press_time;
 
 
 void setup() 
@@ -300,132 +300,171 @@ void setup()
 
 void loop() 
 {
-#if 0
-  // Look for button press
+  digitalWrite(DBG2_PIN, HIGH);
+
+  if (beeper_off_time)
+  {
+    if (millis() >= beeper_off_time)
+    {
+      beeper_off_time = 0;
+      digitalWrite(BEEPER_PIN, HIGH);
+    }
+  }
+
+  // Look for button press to reset our state
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
     // Only register the very first button press - after that, wait for a reset from base station
-    if (btn_press_time_global == 0)
+    if (btn_press_time == 0)
     {
       // We have a button press!
       // Record the local time
-      btn_press_time_local = millis();
-      // Compute the base station global time that the button pressed at
-      btn_press_time_global = base_station_time + (btn_press_time_local - sync_time_local);
-      pixel.setPixelColor(0, COLOR_PURPLE);
+      btn_press_time = millis();
+
+      base_station_is_reset = true;
+      memset(button_push_times, 0x00, sizeof(button_push_times));
+      memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
+      memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
+
+      pixel.setPixelColor(0, COLOR_GREEN);
       pixel.show();
       Serial.print(millis());
-      Serial.print(" Button pushed. Global time = ");
-      Serial.println(btn_press_time_global);
+      Serial.println(" System is now reset");
+
+      // Blank the LCD and display green background
+      tft.fillScreen(ST7796S_GREEN);
+
+      tft.setCursor(140, 120);
+      tft.setTextColor(ST7796S_BLACK);  
+      tft.setTextSize(4);
+      tft.println("Next Quiz");
+      tft.setCursor(150, 160);
+      tft.println("Question");
+
+      any_btn_pushed = false;
+
+      // Set blanking time to ignore any hand controller packets for 1.5s
+      packet_rx_resume_time = millis() + 1500;
     }
   }
 
-  // See if its time for a heartbeat packet
-  if (millis() >= next_heartbeat_time)
+  // Has enough time gone by? Time to send a sync packet?
+  if (millis() >= next_sync_time)
   {
+    // next_sync_time += 300;
+    next_sync_time += 1000;
+    rf95.setHeaderTo(255); // Broadcast to all hand controllers
+    // Build up status byte based on each hand controller's state
+
+    if (any_btn_pushed)
+    {
+      sync_pkt[0] = 255;
+    }
+    else
+    {
+      sync_pkt[0] = 0;
+    }
+    // Copy over the current global time as four bytes
+    sync_time_ms = millis();
+    sync_pkt[1] = (sync_time_ms >> 24) & 0xFF;
+    sync_pkt[2] = (sync_time_ms >> 16) & 0xFF;
+    sync_pkt[3] = (sync_time_ms >> 8) & 0xFF;
+    sync_pkt[4] = sync_time_ms & 0xFF;
+    digitalWrite(DBG1_PIN, HIGH);
+    rf95.send(sync_pkt, 5);
+    digitalWrite(DBG1_PIN, LOW);
     Serial.print(millis());
-    Serial.print(" Sent heartbeat, ");
-    if (btn_press_time_global)
+    Serial.print(" S: ");
+    Serial.print(time_bytes_ms);
+    if (any_btn_pushed)
     {
-      Serial.print(" button pushed at global time = ");
-      Serial.println(btn_press_time_global);
+      Serial.println(" RED");
     }
     else
     {
-      Serial.println(" no button push");
+      Serial.println(" GREEN");
     }
-
-    next_heartbeat_time = millis() + 10 * 1000; // Default next heartbeat time. Only used when no sync packet received from base station.
-    // Toggle the read LED on the board
-    if (digitalRead(LED_BUILTIN))
-    {
-      digitalWrite(LED_BUILTIN, LOW);
-    }
-    else
-    {
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    digitalWrite(DBG3_PIN, HIGH);
-    rf95.setHeaderFrom(my_address);
-    rf95.setHeaderTo(10);   // Use base station's address for every packet
-    // Fill in time of button push
-    heartbeat_pkt[0] = btn_press_time_global & 0xFF;
-    heartbeat_pkt[1] = (btn_press_time_global >> 8) & 0xFF;
-    heartbeat_pkt[2] = (btn_press_time_global >> 16) & 0xFF;
-    heartbeat_pkt[3] = (btn_press_time_global >> 24) & 0xFF;
-    rf95.send(heartbeat_pkt, 4);
-    digitalWrite(DBG3_PIN, LOW);
-    //digitalWrite(DBG3_PIN, HIGH);
-    //rf95.waitPacketSent();
-    //digitalWrite(DBG3_PIN, LOW);
   }
 
-  // In a non-blocking way, look to see if we've received a new packet from the base station
-  packet_len = 10;
-  if (rf95.recv(packet, &packet_len))
-  {
-    // packet_len now set to the length of the recived packet, not including RadioHead header
-    if (packet_len != 5)
-    {
-      Serial.print(millis());
-      Serial.print(" Error RX length not 5. Len = ");
-      Serial.print(packet_len);
-    }
-    else
-    {
-      hc_dst_addr = rf95.headerTo();
-      hc_src_addr = rf95.headerFrom();
-      //headerId();
-      hc_status = packet[0];
-      // Check for propper addressing and status byte values
-      if (hc_src_addr == 10 && hc_dst_addr == 255)
-      {
-        sync_time_local = millis();
-        next_heartbeat_time = sync_time_local + (my_address * 20);
-        // Extract the global time from the sync packet
-        base_station_time = (packet[1] << 24) | (packet[2] << 16) | (packet[3] << 8) | packet[4];
+  digitalWrite(DBG2_PIN, LOW);
 
-        if (hc_status & (1 << (my_address - 1)))
+  // In a non-blocking way, look to see if we've received a  packet
+  packet_len = 10;
+  if (rf95.available())
+  {
+    digitalWrite(DBG0_PIN, HIGH);
+    if (rf95.recv(packet, &packet_len))
+    {
+      digitalWrite(DBG0_PIN, LOW);
+
+      // Toggle the red LED on the board on each received packet
+      if (digitalRead(LED_BUILTIN))
+      {
+        digitalWrite(LED_BUILTIN, LOW);
+      }
+      else
+      {
+        digitalWrite(LED_BUILTIN, HIGH);
+      }
+
+      // Ignore this packet if we have just been reset. If the resume_time is zero, or if
+      // the current time is after the resume_time, then process the packet.
+      if (packet_rx_resume_time < millis())
+
+      // packet_len now set to the length of the recived packet, not including RadioHead header
+      if (packet_len != 5)
+      {
+        Serial.print(millis());
+        Serial.print(" Error RX length not 5. Len = ");
+        Serial.print(packet_len);
+      }
+      else
+      {
+        hc_dst_addr = rf95.headerTo();
+        hc_src_addr = rf95.headerFrom();
+        //headerId();
+        hc_status = packet[0];
+        // Check for propper addressing and status byte values
+        if (hc_src_addr == 10 && hc_dst_addr == 255)
         {
-          pixel.setPixelColor(0, COLOR_RED);
-          pixel.show();
-          Serial.print(millis());
-          Serial.print(" Got a RED sync ");
-          Serial.println(base_station_time);
-          last_pkt_red = true;
-          if (motor_fire == false)
+          sync_time_local = millis();
+          next_heartbeat_time = sync_time_local + (my_address * 20);
+          // Extract the global time from the sync packet
+          base_station_time = (packet[1] << 24) | (packet[2] << 16) | (packet[3] << 8) | packet[4];
+
+          if (hc_status & (1 << (my_address - 1)))
           {
-            digitalWrite(VIBE_MOTOR_PIN, HIGH);
-            motor_end_time = millis() + 3000;
-            motor_fire = true;
+            pixel.setPixelColor(0, COLOR_RED);
+            pixel.show();
+            Serial.print(millis());
+            Serial.print(" Got a RED sync ");
+            Serial.println(base_station_time);
+            last_pkt_red = true;
+            if (motor_fire == false)
+            {
+              digitalWrite(VIBE_MOTOR_PIN, HIGH);
+              motor_end_time = millis() + 3000;
+              motor_fire = true;
+            }
           }
-        }
-        else
-        {
-          pixel.setPixelColor(0, COLOR_GREEN);
-          pixel.show();
-          Serial.print(millis());
-          Serial.print(" Got a GREEN sync ");
-          Serial.println(base_station_time);
-          if (last_pkt_red)
+          else
           {
-            last_pkt_red = false;
-            btn_press_time_global = 0;
-            
+            pixel.setPixelColor(0, COLOR_GREEN);
+            pixel.show();
+            Serial.print(millis());
+            Serial.print(" Got a GREEN sync ");
+            Serial.println(base_station_time);
+            if (last_pkt_red)
+            {
+              last_pkt_red = false;
+              btn_press_time_global = 0;
+              
+            }
+            motor_fire = false;
           }
-          motor_fire = false;
         }
       }
     }
+    digitalWrite(DBG0_PIN, LOW);
   }
-
-  if (motor_end_time > 0)
-  {
-    if (millis() > motor_end_time)
-    {
-      motor_end_time = 0;
-      digitalWrite(VIBE_MOTOR_PIN, LOW);
-    }
-  }
-#endif
 }
