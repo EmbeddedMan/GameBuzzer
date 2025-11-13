@@ -149,7 +149,8 @@ Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
 
 // Base Station global variables
 bool base_station_is_reset;
-uint8_t sync_pkt[5];
+uint8_t packet[10];
+uint8_t sync_pkt[10];
 uint32_t reset_start_time;
 uint32_t button_push_times[8];
 uint32_t heartbeat_times[8];
@@ -161,6 +162,13 @@ uint32_t hc_btn_push_time;
 uint32_t hc_btn_push_time_ms;
 uint32_t packet_rx_resume_time;
 uint32_t btn_press_time;
+bool old_btn;
+uint32_t sync_time_ms;
+uint32_t time_bytes_ms;
+uint8_t packet_len;
+uint8_t hc_dst_addr;
+uint8_t hc_src_addr;
+
 
 
 void setup() 
@@ -225,6 +233,7 @@ void setup()
   rf95.setTxPower(23, false);
   rf95.setSpreadingFactor(7);
   rf95.setSignalBandwidth(500000);
+  rf95.setThisAddress(10);
 
   // Set up the onboard button
   pinMode(BUTTON2_PIN, INPUT_PULLUP);
@@ -297,7 +306,7 @@ void setup()
   tft.setCursor(150, 160);
   tft.println("Question");
 }
-
+ 
 void loop() 
 {
   digitalWrite(DBG2_PIN, HIGH);
@@ -307,7 +316,7 @@ void loop()
     if (millis() >= beeper_off_time)
     {
       beeper_off_time = 0;
-      digitalWrite(BEEPER_PIN, HIGH);
+      digitalWrite(BEEPER_PIN, LOW);
     }
   }
 
@@ -351,8 +360,9 @@ void loop()
   // Has enough time gone by? Time to send a sync packet?
   if (millis() >= next_sync_time)
   {
-    // next_sync_time += 300;
-    next_sync_time += 1000;
+    next_sync_time += 200;
+    //next_sync_time += 1000;
+    rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
     // Build up status byte based on each hand controller's state
 
@@ -392,6 +402,7 @@ void loop()
   packet_len = 10;
   if (rf95.available())
   {
+    Serial.println("PKT AVAILABLE");
     digitalWrite(DBG0_PIN, HIGH);
     if (rf95.recv(packet, &packet_len))
     {
@@ -410,60 +421,83 @@ void loop()
       // Ignore this packet if we have just been reset. If the resume_time is zero, or if
       // the current time is after the resume_time, then process the packet.
       if (packet_rx_resume_time < millis())
+      {
+        packet_rx_resume_time = 0;
 
-      // packet_len now set to the length of the recived packet, not including RadioHead header
-      if (packet_len != 5)
-      {
-        Serial.print(millis());
-        Serial.print(" Error RX length not 5. Len = ");
-        Serial.print(packet_len);
-      }
-      else
-      {
-        hc_dst_addr = rf95.headerTo();
-        hc_src_addr = rf95.headerFrom();
-        //headerId();
-        hc_status = packet[0];
-        // Check for propper addressing and status byte values
-        if (hc_src_addr == 10 && hc_dst_addr == 255)
+        // Check packet length
+        if (packet_len == 4)
         {
-          sync_time_local = millis();
-          next_heartbeat_time = sync_time_local + (my_address * 20);
-          // Extract the global time from the sync packet
-          base_station_time = (packet[1] << 24) | (packet[2] << 16) | (packet[3] << 8) | packet[4];
+          hc_dst_addr = rf95.headerTo();
+          hc_src_addr = rf95.headerFrom();
+          //headerId();
+          hc_btn_push_time_ms = (packet[0] << 24) | (packet[1] << 16) | (packet[2] << 8) | packet[3];
 
-          if (hc_status & (1 << (my_address - 1)))
+          if (hc_src_addr > 0 && hc_src_addr <= 8) // Pkt must come from HC addressed 1 through 8
           {
-            pixel.setPixelColor(0, COLOR_RED);
-            pixel.show();
-            Serial.print(millis());
-            Serial.print(" Got a RED sync ");
-            Serial.println(base_station_time);
-            last_pkt_red = true;
-            if (motor_fire == false)
+            if (hc_dst_addr == 10)  // and it must come to us, base station, addr 10
             {
-              digitalWrite(VIBE_MOTOR_PIN, HIGH);
-              motor_end_time = millis() + 3000;
-              motor_fire = true;
+              if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
+              {
+                heartbeat_times[hc_src_addr - 1] = millis();
+                Serial.print(millis());
+                Serial.print(" Heartbeat from address = ");
+                Serial.println(hc_src_addr);
+              }
+              else
+              {
+                // We got a button push packet from a hand controller
+                // Is this the first button press of any of the hand controllers for this question?
+                if (any_btn_pushed == false)
+                {
+                  // Yes, then start the bepper up
+                  digitalWrite(BEEPER_PIN, HIGH);
+                  any_btn_pushed = true;
+                  beeper_off_time = millis() + 2000;
+                }
+                // Only do stuff if this is the very first button press packet from this hand controller for this question
+                if (button_push_times[hc_src_addr - 1] == 0)
+                {
+                  Serial.print(millis());
+                  Serial.print(" Button push packet at ");
+                  Serial.print(hc_btn_push_time_ms);
+                  Serial.print(" from address = ");
+                  Serial.println(hc_src_addr);
+                  button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
+
+                  // Blank the LCD and display red background
+                  tft.fillScreen(ST7796S_RED);
+
+                  tft.setCursor(10, 25);
+                  tft.setTextColor(ST7796S_WHITE);  
+                  tft.setTextSize(3);
+                  tft.println("Player pushed");
+
+                  // Sort hand controllers in order that they pushed their buttons                 
+                }
+              }
+            }
+            else
+            {
+              Serial.print(millis());
+              Serial.print(" Got a packet with a bad destingation address of ");
+              Serial.println(hc_dst_addr);
             }
           }
           else
           {
-            pixel.setPixelColor(0, COLOR_GREEN);
-            pixel.show();
             Serial.print(millis());
-            Serial.print(" Got a GREEN sync ");
-            Serial.println(base_station_time);
-            if (last_pkt_red)
-            {
-              last_pkt_red = false;
-              btn_press_time_global = 0;
-              
-            }
-            motor_fire = false;
+            Serial.print(" Got a packet with a bad source address of ");
+            Serial.println(hc_src_addr);
           }
         }
+        else
+        {
+          Serial.print(millis());
+          Serial.print(" Got a packet with a bad length of ");
+          Serial.println(packet_len);
+        }
       }
+      digitalWrite(DBG3_PIN, LOW);
     }
     digitalWrite(DBG0_PIN, LOW);
   }

@@ -319,6 +319,12 @@ void loop()
       hc_src_addr = rf95.headerFrom();
       //headerId();
       hc_status = packet[0];
+      // Serial.print("RX PKT Src ");
+      // Serial.print(hc_src_addr);
+      // Serial.print(" Dst ");
+      // Serial.print(hc_dst_addr);
+      // Serial.print(" status ");
+      // Serial.println(hc_status);
       // Check for propper addressing and status byte values
       if (hc_src_addr == 10 && hc_dst_addr == 255)
       {
