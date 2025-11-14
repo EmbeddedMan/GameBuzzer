@@ -208,7 +208,7 @@ void setup()
   delay(10);
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
-
+#if 1
   while (!rf95.init()) 
   {
     Serial.println("LoRa radio init failed");
@@ -255,9 +255,13 @@ void setup()
   memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
+#endif
 
   // Init display
-  tft.begin();
+  tft.begin(62500000);
+  Serial.print("spi_get_baudrate(spi1) = ");
+  Serial.println(spi_get_baudrate(spi1));
+
   // And display splash screen
   tft.setRotation(1);
   tft.invertDisplay(true);
