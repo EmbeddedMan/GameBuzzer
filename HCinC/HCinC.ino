@@ -126,7 +126,7 @@ void setup()
   
   Serial.begin(115200);
   delay(2000);
-  Serial.println("Game Buzzer Hand Controller");
+  Serial.println("Game Buzzer Hand Controller in C 2");
 
   // LED Setup (for heartbeat)
   pinMode(LED_BUILTIN, OUTPUT);
@@ -183,6 +183,7 @@ void setup()
   pinMode(VIBE_MOTOR_PIN, OUTPUT);
   digitalWrite(VIBE_MOTOR_PIN, LOW);
 
+#if 1
   if (LittleFS.begin())
   {
     Serial.println("File system init OK.");
@@ -207,6 +208,9 @@ void setup()
     Serial.println("Err: No myAddress.txt file present. Using default address of 8.");
     my_address = 8;
   }
+#else
+  my_address = 3;
+#endif
 
   // Set our RadioHead addresses
   rf95.setHeaderFrom(my_address);
@@ -329,7 +333,7 @@ void loop()
       if (hc_src_addr == 10 && hc_dst_addr == 255)
       {
         sync_time_local = millis();
-        next_heartbeat_time = sync_time_local + (my_address * 20);
+        next_heartbeat_time = sync_time_local + ((my_address - 1) * 12);
         // Extract the global time from the sync packet
         base_station_time = (packet[1] << 24) | (packet[2] << 16) | (packet[3] << 8) | packet[4];
 

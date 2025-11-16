@@ -208,7 +208,7 @@ void setup()
   delay(10);
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
-#if 1
+
   while (!rf95.init()) 
   {
     Serial.println("LoRa radio init failed");
@@ -255,7 +255,6 @@ void setup()
   memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
-#endif
 
   // Init display
   tft.begin(62500000);
@@ -327,45 +326,46 @@ void loop()
   // Look for button press to reset our state
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
-    // Only register the very first button press - after that, wait for a reset from base station
-    if (btn_press_time == 0)
-    {
-      // We have a button press!
-      // Record the local time
-      btn_press_time = millis();
+    // We have a button press!
+    // Record the local time
+    btn_press_time = millis();
+    
+    rf95.setModeIdle();
 
-      base_station_is_reset = true;
-      memset(button_push_times, 0x00, sizeof(button_push_times));
-      memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
-      memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
+    base_station_is_reset = true;
+    memset(button_push_times, 0x00, sizeof(button_push_times));
+    memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
+    memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
 
-      pixel.setPixelColor(0, COLOR_GREEN);
-      pixel.show();
-      Serial.print(millis());
-      Serial.println(" System is now reset");
+    pixel.setPixelColor(0, COLOR_GREEN);
+    pixel.show();
+//    Serial.print(millis());
+//    Serial.println(" System is now reset");
 
-      // Blank the LCD and display green background
-      tft.fillScreen(ST7796S_GREEN);
+    // Blank the LCD and display green background
+    tft.fillScreen(ST7796S_GREEN);
 
-      tft.setCursor(140, 120);
-      tft.setTextColor(ST7796S_BLACK);  
-      tft.setTextSize(4);
-      tft.println("Next Quiz");
-      tft.setCursor(150, 160);
-      tft.println("Question");
+    tft.setCursor(140, 120);
+    tft.setTextColor(ST7796S_BLACK);  
+    tft.setTextSize(4);
+    tft.println("Next Quiz");
+    tft.setCursor(150,  160);
+    tft.println("Question");
 
-      any_btn_pushed = false;
+    any_btn_pushed = false;
 
-      // Set blanking time to ignore any hand controller packets for 1.5s
-      packet_rx_resume_time = millis() + 1500;
-    }
+    // Set blanking time to ignore any hand controller packets for 1.5s
+    packet_rx_resume_time = millis() + 1000;
+    next_sync_time = millis() + 1110;
   }
+
+  //delay(1);
 
   // Has enough time gone by? Time to send a sync packet?
   if (millis() >= next_sync_time)
   {
-    next_sync_time += 200;
-    //next_sync_time += 1000;
+    next_sync_time = millis() + 110;
+    //next_sync_time = millis() + 1000;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
     // Build up status byte based on each hand controller's state
@@ -384,19 +384,29 @@ void loop()
     sync_pkt[2] = (sync_time_ms >> 16) & 0xFF;
     sync_pkt[3] = (sync_time_ms >> 8) & 0xFF;
     sync_pkt[4] = sync_time_ms & 0xFF;
+
+    // If there is a packet waiting in the radio, flush it before sending
+    packet_len = 10;
+    if (rf95.available())
+    {
+      digitalWrite(DBG0_PIN, HIGH);
+      rf95.recv(packet, &packet_len);
+      digitalWrite(DBG0_PIN, LOW);
+    }
+//    Serial.println("ah");
     digitalWrite(DBG1_PIN, HIGH);
     rf95.send(sync_pkt, 5);
     digitalWrite(DBG1_PIN, LOW);
-    Serial.print(millis());
-    Serial.print(" S: ");
-    Serial.print(time_bytes_ms);
+    delay(2);
+//    Serial.println();
+//    Serial.print(millis());
     if (any_btn_pushed)
     {
-      Serial.println(" RED");
+//      Serial.print(" TX: R RX: ");
     }
     else
     {
-      Serial.println(" GREEN");
+ //     Serial.print(" TX: G RX: ");
     }
   }
 
@@ -406,7 +416,6 @@ void loop()
   packet_len = 10;
   if (rf95.available())
   {
-    Serial.println("PKT AVAILABLE");
     digitalWrite(DBG0_PIN, HIGH);
     if (rf95.recv(packet, &packet_len))
     {
@@ -443,9 +452,8 @@ void loop()
               if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
               {
                 heartbeat_times[hc_src_addr - 1] = millis();
-                Serial.print(millis());
-                Serial.print(" Heartbeat from address = ");
-                Serial.println(hc_src_addr);
+//                Serial.print(hc_src_addr);
+//                Serial.print(":  ");
               }
               else
               {
@@ -461,22 +469,76 @@ void loop()
                 // Only do stuff if this is the very first button press packet from this hand controller for this question
                 if (button_push_times[hc_src_addr - 1] == 0)
                 {
-                  Serial.print(millis());
-                  Serial.print(" Button push packet at ");
-                  Serial.print(hc_btn_push_time_ms);
-                  Serial.print(" from address = ");
-                  Serial.println(hc_src_addr);
+                  rf95.setModeIdle();
+
+//                  Serial.print(hc_src_addr);
+//                  Serial.print(":B ");
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
                   tft.fillScreen(ST7796S_RED);
 
-                  tft.setCursor(10, 25);
+                  tft.setCursor(0, 25);
                   tft.setTextColor(ST7796S_WHITE);  
                   tft.setTextSize(3);
-                  tft.println("Player pushed");
+                  tft.println("   Player button pushes");
+                  tft.println("        in order:");
 
-                  // Sort hand controllers in order that they pushed their buttons                 
+                  // Sort hand controllers in order that they pushed their buttons
+                  // button_push_times[] is zero for a hand controller if they haven't pushed their button
+                  // or a global millisecond since base station boot time if they have.
+                  // Walk through all 8 times[], find the smallest one. Print out its index.
+                  // Find the next smllest one, print it out. Until there are no more times left.
+#if 1
+                  uint8_t outer, inner, smallest_index = 0;
+                  bool printed[8] = {false, false, false, false, false, false, false, false};
+                  uint32_t smallest_time = 0xFFFFFFFF;
+
+                  tft.setCursor(30, 90);
+                  for (outer = 0; outer < 8; outer++)
+                  {
+                    smallest_time = 0;
+                    for (inner = 0; inner < 8; inner++)
+                    {
+                      if ((button_push_times[inner] != 0) && (printed[inner] != true))
+                      {
+                        if (button_push_times[inner] > smallest_time)
+                        {
+                          smallest_time = button_push_times[inner];
+                          smallest_index = inner;
+                        }
+                      }
+                    }
+                    if (smallest_time != 0)
+                    {
+                      // Print out smallest_index
+                      printed[smallest_index] = true;
+                      tft.print(smallest_index + 1);
+                      tft.print("  ");
+                    }
+                  }
+
+                  tft.setCursor(0, 110);
+                  tft.setTextSize(2);
+                  for(outer = 0; outer < 8; outer++)
+                  {
+                    if (printed[outer])
+                    {
+                      tft.print("1 ");
+                    }
+                    else
+                    {
+                      tft.print("o ");
+                    }
+                  }
+                  tft.setCursor(0, 140);
+                  tft.setTextSize(2);
+                  for(outer = 0; outer < 8; outer++)
+                  {
+//                    tft.print(button_push_times[outer]);
+//                    tft.print(" ");
+                  }
+#endif
                 }
               }
             }
