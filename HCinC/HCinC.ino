@@ -108,6 +108,7 @@ uint8_t packet_len = 0;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 uint8_t hc_status;
+bool LED_state;
 
 
 void setup() 
@@ -148,6 +149,7 @@ void setup()
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
 
+  delay(100);
   while (!rf95.init()) 
   {
     Serial.println("LoRa radio init failed");
@@ -155,6 +157,7 @@ void setup()
     while (1);
   }
   Serial.println("LoRa radio init OK!");
+  delay(100);
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
   if (!rf95.setFrequency(RF95_FREQ)) 
@@ -163,13 +166,14 @@ void setup()
     while (1);
   }
   Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+  delay(100);
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
 
   // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
   // you can set transmitter powers from 5 to 23 dBm:
-  rf95.setTxPower(23, false);
+  rf95.setTxPower(10, false);
   rf95.setSpreadingFactor(7);
   rf95.setSignalBandwidth(500000);
 
@@ -209,7 +213,7 @@ void setup()
     my_address = 8;
   }
 #else
-  my_address = 3;
+  my_address = 8;
 #endif
 
   // Set our RadioHead addresses
@@ -224,7 +228,7 @@ void setup()
   pixel.setPixelColor(0, COLOR_BLUE);
   pixel.show();
 
-  next_heartbeat_time = millis();
+  next_heartbeat_time = millis() + (10 * 1000);
   motor_end_time = 0;
   motor_fire = false;
   sync_time = 0;
@@ -243,10 +247,28 @@ void setup()
   digitalWrite(DBG1_PIN, LOW);
   digitalWrite(DBG2_PIN, LOW);
   digitalWrite(DBG3_PIN, LOW);
+
+#if 0
+  while (1)
+  {
+    if (digitalRead(LED_BUILTIN))
+    {
+      digitalWrite(LED_BUILTIN, LOW);
+    }
+    else
+    {
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
+    Serial.print(millis());
+    Serial.println(" yup1");
+    delay(500);
+  }
+#endif
 }
 
 void loop() 
 {
+#if 1
   // Look for button press
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
@@ -265,47 +287,44 @@ void loop()
       Serial.println(btn_press_time_global);
     }
   }
-
+#endif
+#if 1
   // See if its time for a heartbeat packet
   if (millis() >= next_heartbeat_time)
   {
+    Serial.print(" : ");
     Serial.print(millis());
-    Serial.print(" Sent heartbeat, ");
-    if (btn_press_time_global)
-    {
-      Serial.print(" button pushed at global time = ");
-      Serial.println(btn_press_time_global);
-    }
-    else
-    {
-      Serial.println(" no button push");
-    }
+    Serial.print(" Sent heartbeat, bp time = ");
+    Serial.println(btn_press_time_global);
 
-    next_heartbeat_time = millis() + 10 * 1000; // Default next heartbeat time. Only used when no sync packet received from base station.
+    next_heartbeat_time = millis() + (10 * 1000); // Default next heartbeat time. Only used when no sync packet received from base station.
     // Toggle the read LED on the board
-    if (digitalRead(LED_BUILTIN))
+    if (LED_state)
     {
+      LED_state = false;
       digitalWrite(LED_BUILTIN, LOW);
     }
     else
     {
+      LED_state = true;
       digitalWrite(LED_BUILTIN, HIGH);
     }
     digitalWrite(DBG3_PIN, HIGH);
     rf95.setHeaderFrom(my_address);
     rf95.setHeaderTo(10);   // Use base station's address for every packet
     // Fill in time of button push
-    heartbeat_pkt[0] = btn_press_time_global & 0xFF;
-    heartbeat_pkt[1] = (btn_press_time_global >> 8) & 0xFF;
-    heartbeat_pkt[2] = (btn_press_time_global >> 16) & 0xFF;
-    heartbeat_pkt[3] = (btn_press_time_global >> 24) & 0xFF;
+    heartbeat_pkt[0] = (btn_press_time_global >> 24) & 0xFF;
+    heartbeat_pkt[1] = (btn_press_time_global >> 16) & 0xFF;
+    heartbeat_pkt[2] = (btn_press_time_global >> 8) & 0xFF;
+    heartbeat_pkt[3] = btn_press_time_global & 0xFF;
     rf95.send(heartbeat_pkt, 4);
     digitalWrite(DBG3_PIN, LOW);
     //digitalWrite(DBG3_PIN, HIGH);
     //rf95.waitPacketSent();
     //digitalWrite(DBG3_PIN, LOW);
   }
-
+#endif
+#if 1
   // In a non-blocking way, look to see if we've received a new packet from the base station
   packet_len = 10;
   if (rf95.recv(packet, &packet_len))
@@ -333,7 +352,12 @@ void loop()
       if (hc_src_addr == 10 && hc_dst_addr == 255)
       {
         sync_time_local = millis();
-        next_heartbeat_time = sync_time_local + ((my_address - 1) * 12);
+        next_heartbeat_time = sync_time_local + ((my_address - 1) * 11);
+        Serial.print(" sync_time_local = ");
+        Serial.print(sync_time_local);
+        Serial.print(" next_heartbeat_time = ");
+        Serial.print(next_heartbeat_time);
+        Serial.print(" ");
         // Extract the global time from the sync packet
         base_station_time = (packet[1] << 24) | (packet[2] << 16) | (packet[3] << 8) | packet[4];
 
@@ -342,8 +366,8 @@ void loop()
           pixel.setPixelColor(0, COLOR_RED);
           pixel.show();
           Serial.print(millis());
-          Serial.print(" Got a RED sync ");
-          Serial.println(base_station_time);
+          Serial.print(" > Red   sync, global time ");
+          Serial.print(base_station_time);
           last_pkt_red = true;
           if (motor_fire == false)
           {
@@ -357,20 +381,19 @@ void loop()
           pixel.setPixelColor(0, COLOR_GREEN);
           pixel.show();
           Serial.print(millis());
-          Serial.print(" Got a GREEN sync ");
-          Serial.println(base_station_time);
+          Serial.print(" > Green sync, global time ");
+          Serial.print(base_station_time);
           if (last_pkt_red)
           {
             last_pkt_red = false;
             btn_press_time_global = 0;
-            
           }
           motor_fire = false;
         }
       }
     }
   }
-
+#endif
   if (motor_end_time > 0)
   {
     if (millis() > motor_end_time)

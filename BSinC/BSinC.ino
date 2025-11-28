@@ -230,7 +230,7 @@ void setup()
   // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
   // you can set transmitter powers from 5 to 23 dBm:
-  rf95.setTxPower(23, false);
+  rf95.setTxPower(10, false);
   rf95.setSpreadingFactor(7);
   rf95.setSignalBandwidth(500000);
   rf95.setThisAddress(10);
@@ -339,8 +339,8 @@ void loop()
 
     pixel.setPixelColor(0, COLOR_GREEN);
     pixel.show();
-//    Serial.print(millis());
-//    Serial.println(" System is now reset");
+    Serial.print(millis());
+    Serial.println(" System is now reset");
 
     // Blank the LCD and display green background
     tft.fillScreen(ST7796S_GREEN);
@@ -365,7 +365,7 @@ void loop()
   if (millis() >= next_sync_time)
   {
     next_sync_time = millis() + 110;
-    //next_sync_time = millis() + 1000;
+//    next_sync_time = millis() + 1000;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
     // Build up status byte based on each hand controller's state
@@ -393,20 +393,22 @@ void loop()
       rf95.recv(packet, &packet_len);
       digitalWrite(DBG0_PIN, LOW);
     }
-//    Serial.println("ah");
     digitalWrite(DBG1_PIN, HIGH);
     rf95.send(sync_pkt, 5);
     digitalWrite(DBG1_PIN, LOW);
     delay(2);
-//    Serial.println();
-//    Serial.print(millis());
+    Serial.println();
     if (any_btn_pushed)
     {
-//      Serial.print(" TX: R RX: ");
+      Serial.print(millis());
+      Serial.print(" Red   Sync sent: ");
+      Serial.print(sync_time_ms);
     }
     else
     {
- //     Serial.print(" TX: G RX: ");
+      Serial.print(millis());
+      Serial.print(" Green Sync sent: ");
+      Serial.print(sync_time_ms);
     }
   }
 
@@ -452,8 +454,9 @@ void loop()
               if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
               {
                 heartbeat_times[hc_src_addr - 1] = millis();
-//                Serial.print(hc_src_addr);
-//                Serial.print(":  ");
+                Serial.print(" $ ");
+                Serial.print(hc_src_addr);
+                Serial.print(" : hb ");
               }
               else
               {
@@ -471,8 +474,10 @@ void loop()
                 {
                   rf95.setModeIdle();
 
-//                  Serial.print(hc_src_addr);
-//                  Serial.print(":B ");
+                  Serial.print(" $ ");
+                  Serial.print(hc_src_addr);
+                  Serial.print(" : bp ");
+                  Serial.print(hc_btn_push_time_ms);
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
@@ -489,15 +494,27 @@ void loop()
                   // or a global millisecond since base station boot time if they have.
                   // Walk through all 8 times[], find the smallest one. Print out its index.
                   // Find the next smllest one, print it out. Until there are no more times left.
-#if 1
                   uint8_t outer, inner, smallest_index = 0;
                   bool printed[8] = {false, false, false, false, false, false, false, false};
                   uint32_t smallest_time = 0xFFFFFFFF;
+
+                  Serial.println();
+                  // Print out the times at start of sort
+                  for (outer = 0; outer < 8; outer++)
+                  {
+                    Serial.print(outer);
+                    Serial.print(":");
+                    Serial.print(button_push_times[outer]);
+                    Serial.println();
+                  }
 
                   tft.setCursor(30, 90);
                   for (outer = 0; outer < 8; outer++)
                   {
                     smallest_time = 0;
+                    Serial.print("> Outer = ");
+                    Serial.print(outer);
+                    // Find the outerith smallest push time that hasn't been printed yet
                     for (inner = 0; inner < 8; inner++)
                     {
                       if ((button_push_times[inner] != 0) && (printed[inner] != true))
@@ -509,6 +526,11 @@ void loop()
                         }
                       }
                     }
+                    Serial.print(" smallest = ");
+                    Serial.print(smallest_time);
+                    Serial.print(" at index ");
+                    Serial.println(smallest_index);
+                    // Smallest time should now be shortest unpushed time, at index smallest_index
                     if (smallest_time != 0)
                     {
                       // Print out smallest_index
@@ -517,28 +539,6 @@ void loop()
                       tft.print("  ");
                     }
                   }
-
-                  tft.setCursor(0, 110);
-                  tft.setTextSize(2);
-                  for(outer = 0; outer < 8; outer++)
-                  {
-                    if (printed[outer])
-                    {
-                      tft.print("1 ");
-                    }
-                    else
-                    {
-                      tft.print("o ");
-                    }
-                  }
-                  tft.setCursor(0, 140);
-                  tft.setTextSize(2);
-                  for(outer = 0; outer < 8; outer++)
-                  {
-//                    tft.print(button_push_times[outer]);
-//                    tft.print(" ");
-                  }
-#endif
                 }
               }
             }
