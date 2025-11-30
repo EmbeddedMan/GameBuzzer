@@ -1,0 +1,26 @@
+Reference,Qty,Value,DNP,Exclude from BOM,Exclude from Board,Footprint,Datasheet,Need Order?,Part Number,DigiKey,Description
+BT1,1,CR2032,,,,Battery:BatteryHolder_MYOUNG_BS-07-A1BJ001_CR2032,~,No,,,
+"C1,C2,C5",3,0.1 uF,,,,Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder,~,No,,,
+"C3,C4",2,680 pF,,,,Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder,~,Yes,CC0603KPX7R9BB681,13-CC0603KPX7R9BB681CT-ND,CAP CER 680PF 50V X7R 0603
+D1,1,RF Active,,,,LED_SMD:LED_0603_1608Metric,~,Yes,APHD1608LCGCK,754-2031-1-ND,LED GREEN CLEAR 1608 SMD
+D2,1,Power,,,,LED_SMD:LED_0603_1608Metric,~,Yes,APTD1608LSURCK,754-2038-1-ND,LED RED CLEAR 1608 SMD
+FL1,1,B39921B4344P810,,,,Filter:Filter_1411-5_1.4x1.1mm,https://www.murata.com/~/media/webrenewal/support/library/catalog/products/filter/rf/p73e.ashx?la=en,Yes,B39921B4344P810,1752-B39921B4344P810CT-ND,FILTER SAW 915MHZ 5-SMD
+J1,1,SMA RF Input,,,,Connector_Coaxial:SMA_Samtec_SMA-J-P-H-ST-EM1_EdgeMount,~,Yes,EMPCB.SMAFSTJ.B.HT,931-1175-ND,CONN SMA JACK STR 50OHM EDGE MNT
+J2,1,Logic Ouptut,,,,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,~,No,,,
+"R1,R2",2,3.3K,,,,Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder,~,No,,,
+"R3,R4",2,10,,,,Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder,~,Yes,RC0603FR-0710RL,311-10.0HRCT-ND,RES 10 OHM 1% 1/10W 0603
+R5,1,500,,,,Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder,~,Yes,RC0603FR-07499RL,311-499HRCT-ND,RES 499 OHM 1% 1/10W 0603
+R6,1,10K,,,,Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder,~,No,,,
+R7,1,53.6,,,,Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder,~,Yes,RC0603FR-0753R6L,311-53.6HRCT-ND,RES 53.6 OHM 1% 1/10W 0603
+RV1,1,10K,,,,Potentiometer_THT:Potentiometer_Bourns_3266W_Vertical,~,Yes,3266W-1-103LF,3266W-103LF-ND,TRIMMER 10K OHM 0.25W PC PIN TOP
+SW1,1,Power Switch,,,,Button_Switch_SMD:SW_SPDT_CK_JS102011SAQN,~,Yes,JS102011SAQN,401-1999-1-ND,SWITCH SLIDE SPDT 300MA 6V
+TP1,1,VCC,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+TP2,1,RF Input,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+TP3,1,Amp Output,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+TP4,1,Threshold Voltage,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+TP5,1,Logic Output,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+"TP6,TP7",2,GND,,,,TestPoint:TestPoint_Loop_D2.54mm_Drill1.5mm_Beaded,~,No,,,
+TP8,1,SAW,,,,TestPoint:TestPoint_Pad_1.0x1.0mm,~,No,,,
+TP9,1,Bypass,,,,TestPoint:TestPoint_Pad_1.0x1.0mm,~,No,,,
+U1,1,TLV7031DBV,,,,Package_TO_SOT_SMD:SOT-23-5,https://www.ti.com/lit/ds/symlink/tlv7031.pdf,Yes,TLV7031DBVR,296-TLV7031DBVRCT-ND,IC COMPARATOR 1 GEN PUR SOT23-5
+U2,1,AD8313xRM,,,,Package_SO:MSOP-8_3x3mm_P0.65mm,https://www.analog.com/media/en/technical-documentation/data-sheets/AD8313.pdf,Yes,AD8313ARMZ,505-AD8313ARMZ-ND,IC RF DETECT 100MHZ-2.5GHZ 8MSOP
