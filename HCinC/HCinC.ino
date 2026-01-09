@@ -3,6 +3,17 @@
 #  HAND CONTROLLER   #
 ######################
 
+#
+# NOTE:
+#   This code MUST be built and programmed with the Tools->Flash Size->8MB (Sketch 7MB FS 1MB) option set.
+#   This setting gets reset every time Arduino IDE is opened, so it must be set every time.
+#
+# To download the filesystem image from the Arduino IDE, use Ctrl-Shift-P, then select 
+#   "Upload LittleFS (Pico/etc)"
+#
+#
+# General Idea:
+#
 # All packets sent between any nodes will consist of the folowing:
 # Each packet will consist of four bytes.
 # Packet Structure:
@@ -352,7 +363,7 @@ void loop()
       if (hc_src_addr == 10 && hc_dst_addr == 255)
       {
         sync_time_local = millis();
-        next_heartbeat_time = sync_time_local + ((my_address - 1) * 11);
+        next_heartbeat_time = sync_time_local + ((my_address - 1) * 15);
         Serial.print(" sync_time_local = ");
         Serial.print(sync_time_local);
         Serial.print(" next_heartbeat_time = ");

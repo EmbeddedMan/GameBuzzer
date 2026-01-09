@@ -104,6 +104,16 @@ board.SDA (GPIO2)
 #include <LittleFS.h>
 #include <string.h>
 
+#define FileSys LittleFS
+
+#include <PNGdec.h>
+
+PNG png;
+
+#define MAX_IMAGE_WIDTH 480
+int16_t xpos = 0;
+int16_t ypos = 0;
+
 #define NEOPIXEL_PIN    4
 #define BUTTON1_PIN     10  // Red pushbutton
 #define BUTTON2_PIN     7   // Boot button on Feather
@@ -270,6 +280,32 @@ void setup()
   tft.setTextSize(4);
   tft.println("Book Club");
 
+  if (!FileSys.begin()) {
+    Serial.println("LittleFS init failed");
+    while(1);
+  }
+
+  File root = LittleFS.open("/", "r");
+  
+  // Pass support callback function names to library
+  int16_t rc = png.open("splash1.png", pngOpen, pngClose, pngRead, pngSeek, pngDraw);
+  if (rc == PNG_SUCCESS) 
+  {
+    tft.startWrite();
+    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
+    uint32_t dt = millis();
+    if (png.getWidth() > MAX_IMAGE_WIDTH) {
+      Serial.println("Image too wide for allocated line buffer size!");
+    }
+    else {
+      rc = png.decode(NULL, 0);
+      png.close();
+    }
+    tft.endWrite();
+    // How long did rendering take...
+    Serial.print(millis()-dt); Serial.println("ms");
+  }
+
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
 
@@ -309,7 +345,7 @@ void setup()
   tft.setCursor(150, 160);
   tft.println("Question");
 }
- 
+  
 void loop() 
 {
   digitalWrite(DBG2_PIN, HIGH);
@@ -364,7 +400,7 @@ void loop()
   // Has enough time gone by? Time to send a sync packet?
   if (millis() >= next_sync_time)
   {
-    next_sync_time = millis() + 110;
+    next_sync_time = millis() + 140;
 //    next_sync_time = millis() + 1000;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
@@ -567,4 +603,47 @@ void loop()
     }
     digitalWrite(DBG0_PIN, LOW);
   }
+}
+
+//=========================================v==========================================
+//                                      pngDraw
+//====================================================================================
+// This next function will be called during decoding of the png file to
+// render each image line to the TFT.  If you use a different TFT library
+// you will need to adapt this function to suit.
+// Callback function to draw pixels to the display
+int pngDraw(PNGDRAW *pDraw) {
+  uint16_t lineBuffer[MAX_IMAGE_WIDTH];
+  png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
+//  tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
+  return 1;
+}
+
+// Here are the callback functions that the decPNG library
+// will use to open files, fetch data and close the file.
+
+File pngfile;
+
+void * pngOpen(const char *filename, int32_t *size) {
+  Serial.printf("Attempting to open %s\n", filename);
+  pngfile = FileSys.open(filename, "r");
+  *size = pngfile.size();
+  return &pngfile;
+}
+
+void pngClose(void *handle) {
+  File pngfile = *((File*)handle);
+  if (pngfile) pngfile.close();
+}
+
+int32_t pngRead(PNGFILE *page, uint8_t *buffer, int32_t length) {
+  if (!pngfile) return 0;
+  page = page; // Avoid warning
+  return pngfile.read(buffer, length);
+}
+
+int32_t pngSeek(PNGFILE *page, int32_t position) {
+  if (!pngfile) return 0;
+  page = page; // Avoid warning
+  return pngfile.seek(position);
 }
