@@ -98,9 +98,7 @@ board.SDA (GPIO2)
 #include <SPI.h>
 #include <RH_RF95.h>
 #include <Adafruit_NeoPixel.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7796S_kbv.h>
-//#include <Adafruit_ImageReader_LittleFS.h>
+#include <FS.h>
 #include <LittleFS.h>
 #include <string.h>
 
@@ -113,6 +111,11 @@ PNG png;
 #define MAX_IMAGE_WIDTH 480
 int16_t xpos = 0;
 int16_t ypos = 0;
+
+#include <TFT_eSPI.h>
+TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite spr = TFT_eSprite(&tft);
+
 
 #define NEOPIXEL_PIN    4
 #define BUTTON1_PIN     10  // Red pushbutton
@@ -145,17 +148,14 @@ int16_t ypos = 0;
 #define COLOR_YELLOW    pixel.Color(255, 255, 0)
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
 
+#define AA_FONT_LARGE "NotoSansBold36"
+
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // Neopixel object
 Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
-
-//Adafruit_ImageReader_LittleFS reader()
-
-// Use hardware SPI for LCD
-Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
 
 // Base Station global variables
 bool base_station_is_reset;
@@ -178,6 +178,7 @@ uint32_t time_bytes_ms;
 uint8_t packet_len;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
+bool need_to_see_button_release;
 
 
 
@@ -266,27 +267,40 @@ void setup()
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
 
-  // Init display
-  tft.begin(62500000);
-  Serial.print("spi_get_baudrate(spi1) = ");
-  Serial.println(spi_get_baudrate(spi1));
-
-  // And display splash screen
-  tft.setRotation(1);
-  tft.invertDisplay(true);
-  tft.fillScreen(ST7796S_WHITE);
-  tft.setCursor(140, 140);
-  tft.setTextColor(ST7796S_BLACK);  
-  tft.setTextSize(4);
-  tft.println("Book Club");
-
-  if (!FileSys.begin()) {
-    Serial.println("LittleFS init failed");
+  // Init the file system
+  if (!FileSys.begin())
+  {
+    Serial.println("LittlFS init failed!");
     while(1);
   }
 
+  // Init display
+  tft.begin();
+#if 0
+
+  // And display splash screen
+  spr.setColorDepth(16);
+  tft.setRotation(1);
+  tft.invertDisplay(true);
+//  tft.fillScreen(TFT_WHITE);
+//  tft.setCursor(140, 140);
+  tft.setTextColor(TFT_BLACK);
+//  tft.setTextSize(4);
+//  tft.println("Book Club");
+
   File root = LittleFS.open("/", "r");
   
+  // ESP32 will crash if any of the fonts are missing
+  bool font_missing = false;
+  if (LittleFS.exists("/NotoSansBold36.vlw")    == false) font_missing = true;
+
+  if (font_missing)
+  {
+    Serial.println("\nFont missing in Flash FS, did you upload it?");
+    while(1);
+  }
+  else Serial.println("\nFonts found OK.");
+
   // Pass support callback function names to library
   int16_t rc = png.open("splash1.png", pngOpen, pngClose, pngRead, pngSeek, pngDraw);
   if (rc == PNG_SUCCESS) 
@@ -308,6 +322,7 @@ void setup()
 
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
+#endif
 
   // Wait to receive packets
   Serial.println("Main Loop: starting time sync packets");
@@ -335,17 +350,25 @@ void setup()
   // When non-zero, causes us to ignore all received packets
   packet_rx_resume_time = 0;
 
-  // Blank the LCD and display green background
-  tft.fillScreen(ST7796S_GREEN);
+#if 0
 
-  tft.setCursor(140, 120);
-  tft.setTextColor(ST7796S_BLACK);  
-  tft.setTextSize(4);
-  tft.println("Next Quiz");
-  tft.setCursor(150, 160);
-  tft.println("Question");
+  // Blank the LCD and display green background
+  tft.fillScreen(TFT_GREEN);
+
+  tft.setTextDatum(TC_DATUM);
+  spr.loadFont(AA_FONT_LARGE, LittleFS);
+  spr.setTextColor(TFT_BLACK);
+  tft.setCursor(150, 100);
+  tft.setTextFont(8);
+  tft.setTextColor(TFT_BLACK);
+  tft.setTextSize(1);
+  spr.printToSprite("Next Quiz");
+  tft.setCursor(160,  180);
+  spr.printToSprite("Question");
+#endif
 }
-  
+
+
 void loop() 
 {
   digitalWrite(DBG2_PIN, HIGH);
@@ -362,41 +385,56 @@ void loop()
   // Look for button press to reset our state
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
-    // We have a button press!
-    // Record the local time
-    btn_press_time = millis();
-    
-    rf95.setModeIdle();
+    if (!need_to_see_button_release)
+    {
+      // We have a button press!
+      // Record the local time
+      btn_press_time = millis();
+      
+      rf95.setModeIdle();
 
-    base_station_is_reset = true;
-    memset(button_push_times, 0x00, sizeof(button_push_times));
-    memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
-    memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
+      base_station_is_reset = true;
+      memset(button_push_times, 0x00, sizeof(button_push_times));
+      memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
+      memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
 
-    pixel.setPixelColor(0, COLOR_GREEN);
-    pixel.show();
-    Serial.print(millis());
-    Serial.println(" System is now reset");
+      pixel.setPixelColor(0, COLOR_GREEN);
+      pixel.show();
+      Serial.print(millis());
+      Serial.println(" System is now reset");
 
-    // Blank the LCD and display green background
-    tft.fillScreen(ST7796S_GREEN);
+      // Blank the LCD and display green background
+      tft.fillScreen(TFT_GREEN);
 
-    tft.setCursor(140, 120);
-    tft.setTextColor(ST7796S_BLACK);  
-    tft.setTextSize(4);
-    tft.println("Next Quiz");
-    tft.setCursor(150,  160);
-    tft.println("Question");
+      tft.setTextDatum(TC_DATUM);
+      spr.setTextColor(TFT_BLACK);
+      tft.setCursor(150, 100);
+      tft.setTextColor(TFT_BLACK);
+      spr.printToSprite("Next Quiz");
+      tft.setCursor(160,  180);
+      spr.printToSprite("Question");
 
-    any_btn_pushed = false;
+      any_btn_pushed = false;
 
-    // Set blanking time to ignore any hand controller packets for 1.5s
-    packet_rx_resume_time = millis() + 1000;
-    next_sync_time = millis() + 1110;
+      // Set blanking time to ignore any hand controller packets for 1.5s
+      packet_rx_resume_time = millis() + 1000;
+      next_sync_time = millis() + 1110;
+
+      need_to_see_button_release = true;
+    }
+  }
+  else
+  {
+    if (need_to_see_button_release)
+    {
+      delay(100);
+      need_to_see_button_release = false;
+    }
   }
 
   //delay(1);
 
+#if 1
   // Has enough time gone by? Time to send a sync packet?
   if (millis() >= next_sync_time)
   {
@@ -447,9 +485,9 @@ void loop()
       Serial.print(sync_time_ms);
     }
   }
-
+#endif
   digitalWrite(DBG2_PIN, LOW);
-
+#if 1
   // In a non-blocking way, look to see if we've received a  packet
   packet_len = 10;
   if (rf95.available())
@@ -517,10 +555,10 @@ void loop()
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
-                  tft.fillScreen(ST7796S_RED);
+                  tft.fillScreen(TFT_RED);
 
                   tft.setCursor(0, 25);
-                  tft.setTextColor(ST7796S_WHITE);  
+                  tft.setTextColor(TFT_WHITE);  
                   tft.setTextSize(3);
                   tft.println("   Player button pushes");
                   tft.println("        in order:");
@@ -603,6 +641,7 @@ void loop()
     }
     digitalWrite(DBG0_PIN, LOW);
   }
+#endif
 }
 
 //=========================================v==========================================
@@ -615,7 +654,7 @@ void loop()
 int pngDraw(PNGDRAW *pDraw) {
   uint16_t lineBuffer[MAX_IMAGE_WIDTH];
   png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
-//  tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
+  tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
   return 1;
 }
 
