@@ -137,7 +137,7 @@ void setup()
   digitalWrite(DBG3_PIN, LOW);
   
   Serial.begin(115200);
-  delay(2000);
+  delay(3000);
   Serial.println("Game Buzzer Hand Controller in C 2");
 
   // LED Setup (for heartbeat)
@@ -363,7 +363,7 @@ void loop()
       if (hc_src_addr == 10 && hc_dst_addr == 255)
       {
         sync_time_local = millis();
-        next_heartbeat_time = sync_time_local + ((my_address - 1) * 15);
+        next_heartbeat_time = sync_time_local + (((my_address - 1) * 15) + 5);
         Serial.print(" sync_time_local = ");
         Serial.print(sync_time_local);
         Serial.print(" next_heartbeat_time = ");
