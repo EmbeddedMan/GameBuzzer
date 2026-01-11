@@ -136,6 +136,8 @@ int16_t ypos = 0;
 #define RF95_FREQ       915.0
 #define BASE_STATION_RH_ADDRESS 10    // Base Station radio address
 
+#define TIME_SYNC_PACKET_PERIOD_MS  140 // Number of milliseconds between time sync packets - sets overall repeition rate for entier system
+
 #define NUMPIXELS       1
 
 // Crappy dumb hack to get named colors like the Pyhton code had
@@ -400,8 +402,7 @@ void loop()
   // Has enough time gone by? Time to send a sync packet?
   if (millis() >= next_sync_time)
   {
-    next_sync_time = millis() + 140;
-//    next_sync_time = millis() + 1000;
+    next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
     // Build up status byte based on each hand controller's state
@@ -429,9 +430,19 @@ void loop()
       rf95.recv(packet, &packet_len);
       digitalWrite(DBG0_PIN, LOW);
     }
-    digitalWrite(DBG1_PIN, HIGH);
-    rf95.send(sync_pkt, 5);
-    digitalWrite(DBG1_PIN, LOW);
+    /// // JUST FOR TESTING: Skip sending every 10th time sync packet
+    ///static int8_t time_sink_skip = 10;
+    ///if (time_sink_skip > 1)
+    ///{
+      digitalWrite(DBG1_PIN, HIGH);
+      rf95.send(sync_pkt, 5);
+      digitalWrite(DBG1_PIN, LOW);
+    ///}
+    ///time_sink_skip--;
+    ///if (time_sink_skip <= 0)
+    ///{
+    ///  time_sink_skip = 10;
+    ///}
     delay(2);
     Serial.println();
     if (any_btn_pushed)

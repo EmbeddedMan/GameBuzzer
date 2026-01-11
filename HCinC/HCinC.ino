@@ -91,6 +91,7 @@
 #define COLOR_YELLOW    pixel.Color(255, 255, 0)
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
 
+#define TIME_SYNC_PACKET_PERIOD_MS  140 // Ms between base station time sync packets. Must match what's in BSinC.ino
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -258,28 +259,10 @@ void setup()
   digitalWrite(DBG1_PIN, LOW);
   digitalWrite(DBG2_PIN, LOW);
   digitalWrite(DBG3_PIN, LOW);
-
-#if 0
-  while (1)
-  {
-    if (digitalRead(LED_BUILTIN))
-    {
-      digitalWrite(LED_BUILTIN, LOW);
-    }
-    else
-    {
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    Serial.print(millis());
-    Serial.println(" yup1");
-    delay(500);
-  }
-#endif
 }
 
 void loop() 
 {
-#if 1
   // Look for button press
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
@@ -298,8 +281,7 @@ void loop()
       Serial.println(btn_press_time_global);
     }
   }
-#endif
-#if 1
+
   // See if its time for a heartbeat packet
   if (millis() >= next_heartbeat_time)
   {
@@ -308,7 +290,9 @@ void loop()
     Serial.print(" Sent heartbeat, bp time = ");
     Serial.println(btn_press_time_global);
 
-    next_heartbeat_time = millis() + (10 * 1000); // Default next heartbeat time. Only used when no sync packet received from base station.
+    // Default next heartbeat time. If we don't get a time sync packet from the base station,
+    // this will keep us going until we do.
+    next_heartbeat_time = millis() + (TIME_SYNC_PACKET_PERIOD_MS); 
     // Toggle the read LED on the board
     if (LED_state)
     {
@@ -334,8 +318,7 @@ void loop()
     //rf95.waitPacketSent();
     //digitalWrite(DBG3_PIN, LOW);
   }
-#endif
-#if 1
+
   // In a non-blocking way, look to see if we've received a new packet from the base station
   packet_len = 10;
   if (rf95.recv(packet, &packet_len))
@@ -404,7 +387,7 @@ void loop()
       }
     }
   }
-#endif
+
   if (motor_end_time > 0)
   {
     if (millis() > motor_end_time)
