@@ -106,7 +106,7 @@ board.SDA (GPIO2)
 
 #define FileSys LittleFS
 
-#include <PNGdec.h>
+#include <PNGdec.h> 
 
 PNG png;
 
@@ -167,6 +167,7 @@ uint32_t reset_start_time;
 uint32_t button_push_times[8];
 uint32_t heartbeat_times[8];
 uint8_t hc_btn_order[8];
+uint8_t hc_seen_reset[8];       // When BS button pushed, remember HC with buttons pushed. Only clear those once they send back unpushed packets.
 bool any_btn_pushed;
 uint32_t beeper_off_time;
 uint32_t next_sync_time;
@@ -350,6 +351,8 @@ void setup()
   
 void loop() 
 {
+  uint32_t i;
+
   digitalWrite(DBG2_PIN, HIGH);
 
   if (beeper_off_time)
@@ -357,6 +360,7 @@ void loop()
     if (millis() >= beeper_off_time)
     {
       beeper_off_time = 0;
+      // Turn the beeper off
       digitalWrite(BEEPER_PIN, LOW);
     }
   }
@@ -392,9 +396,26 @@ void loop()
 
     any_btn_pushed = false;
 
+    // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
+    // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
+    // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
+    for (i=0; i < 8; i++)
+    {
+      if (button_push_times[i] > 0)
+      {
+        hc_seen_reset[i] = false;
+      }
+      else
+      {
+        hc_seen_reset[i] = true;
+      }
+    }
+
     // Set blanking time to ignore any hand controller packets for 1.5s
-    packet_rx_resume_time = millis() + 1000;
-    next_sync_time = millis() + 1110;
+    /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
+    packet_rx_resume_time = millis() + 5000;
+    // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
+    // next_sync_time = millis() + 1110;
   }
 
   //delay(1);
@@ -461,7 +482,7 @@ void loop()
 
   digitalWrite(DBG2_PIN, LOW);
 
-  // In a non-blocking way, look to see if we've received a  packet
+  // In a non-blocking way, look to see if we've received a packet
   packet_len = 10;
   if (rf95.available())
   {
@@ -480,39 +501,62 @@ void loop()
         digitalWrite(LED_BUILTIN, HIGH);
       }
 
-      // Ignore this packet if we have just been reset. If the resume_time is zero, or if
-      // the current time is after the resume_time, then process the packet.
-      if (packet_rx_resume_time < millis())
+      // Check packet length
+      if (packet_len == 4)
       {
-        packet_rx_resume_time = 0;
+        hc_dst_addr = rf95.headerTo();
+        hc_src_addr = rf95.headerFrom();
+        //headerId();
+        hc_btn_push_time_ms = (packet[0] << 24) | (packet[1] << 16) | (packet[2] << 8) | packet[3];
 
-        // Check packet length
-        if (packet_len == 4)
+        if (hc_src_addr > 0 && hc_src_addr <= 8) // Pkt must come from HC addressed 1 through 8
         {
-          hc_dst_addr = rf95.headerTo();
-          hc_src_addr = rf95.headerFrom();
-          //headerId();
-          hc_btn_push_time_ms = (packet[0] << 24) | (packet[1] << 16) | (packet[2] << 8) | packet[3];
-
-          if (hc_src_addr > 0 && hc_src_addr <= 8) // Pkt must come from HC addressed 1 through 8
+          if (hc_dst_addr == 10)  // and it must come to us, base station, addr 10
           {
-            if (hc_dst_addr == 10)  // and it must come to us, base station, addr 10
+            if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
             {
-              if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
+              heartbeat_times[hc_src_addr - 1] = millis();
+              hc_seen_reset[hc_src_addr - 1] = true;
+              Serial.print(" $ ");
+              Serial.print(hc_src_addr);
+              Serial.print(" : hb ");
+            }
+            else
+            {
+              // Have we timed out of any ongoing blanking period?
+              if (packet_rx_resume_time < millis())
               {
-                heartbeat_times[hc_src_addr - 1] = millis();
-                Serial.print(" $ ");
-                Serial.print(hc_src_addr);
-                Serial.print(" : hb ");
+                packet_rx_resume_time = 0;
               }
-              else
+              // If we are in a blanking period after a system reset (BS button push), then check to see
+              // if all of the HC that had button pushes have checked in with 'no button push' packets. If not,
+              // then ignore this packet.
+              if (packet_rx_resume_time)
+              {
+                bool any_waiting_for_reset = false;
+                for (i=0; i < 8; i++)
+                {
+                  if (hc_seen_reset[i] == false)
+                  {
+                    any_waiting_for_reset = true;
+                  }
+                }
+                if (any_waiting_for_reset == false)
+                {
+                  // All HCs with button pushes have checked in with plain heartbeat packets. So we don't need to
+                  // be in a blanking period anymore
+                  packet_rx_resume_time = 0;
+                }
+              }
+
+              if (!packet_rx_resume_time)
               {
                 // We got a button push packet from a hand controller
                 // Is this the first button press of any of the hand controllers for this question?
                 if (any_btn_pushed == false)
                 {
                   // Yes, then start the bepper up
-                  digitalWrite(BEEPER_PIN, HIGH);
+                  //digitalWrite(BEEPER_PIN, HIGH);
                   any_btn_pushed = true;
                   beeper_off_time = millis() + 2000;
                 }
@@ -589,26 +633,26 @@ void loop()
                 }
               }
             }
-            else
-            {
-              Serial.print(millis());
-              Serial.print(" Got a packet with a bad destingation address of ");
-              Serial.println(hc_dst_addr);
-            }
           }
           else
           {
             Serial.print(millis());
-            Serial.print(" Got a packet with a bad source address of ");
-            Serial.println(hc_src_addr);
+            Serial.print(" Got a packet with a bad destingation address of ");
+            Serial.println(hc_dst_addr);
           }
         }
         else
         {
           Serial.print(millis());
-          Serial.print(" Got a packet with a bad length of ");
-          Serial.println(packet_len);
+          Serial.print(" Got a packet with a bad source address of ");
+          Serial.println(hc_src_addr);
         }
+      }
+      else
+      {
+        Serial.print(millis());
+        Serial.print(" Got a packet with a bad length of ");
+        Serial.println(packet_len);
       }
       digitalWrite(DBG3_PIN, LOW);
     }
