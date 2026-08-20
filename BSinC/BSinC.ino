@@ -12,11 +12,25 @@ a system with eight hand controllers and one base station. Players push the
 button on their hand controller and the base station records who pushed their
 button first, displaying the result on a screen.
 
+****** NOTE 1 *********
+
+In order for the SPI bus that talks to the LCD screen to max out at 62.5MHz, you must
+overclock the MCU core speed to 250 Mhz. This is done in the Tools->CPU Speed->250 MHZ
+setting in the Arduino IDE.
+
+****** NOTE 2 *********
+
+To convert a PNG image into a bitmap format that can be directly read into the display (RGB656),
+use the following image magick command:
+$ magick ./splash1.png -flip -type TrueColor -depth 16 -compress none -define bmp:subtype=RGB565 splash1.bmp
+The -flip option is necessary because Adafruit_GFX reads bitmap images from the lower left rather than the upper left.
+
+
 (Pinout of Feather RP2040 RFM in CircuitPython)
-board.A0 (GPIO26)
-board.A1 (GPIO27)
-board.A2 (GPIO28)
-board.A3 (GPIO29)
+board.A0 (GPIO26)   DBG0
+board.A1 (GPIO27)   DBG1
+board.A2 (GPIO28)   DBG2
+board.A3 (GPIO29)   DBG3
 board.BOOT board.BUTTON board.D7 (GPIO7)
 board.D0 board.RX (GPIO1)
 board.D1 board.TX (GPIO0)
@@ -103,6 +117,7 @@ board.SDA (GPIO2)
 //#include <Adafruit_ImageReader_LittleFS.h>
 #include <LittleFS.h>
 #include <string.h>
+#include <hardware/clocks.h> // Required for clock configuration functions
 
 #define FileSys LittleFS
 
@@ -110,7 +125,9 @@ board.SDA (GPIO2)
 
 PNG png;
 
-#define MAX_IMAGE_WIDTH 480
+#define SCREEN_WIDTH    480
+#define MAX_IMAGE_WIDTH SCREEN_WIDTH
+#define SCREEN_HEIGHT   320
 int16_t xpos = 0;
 int16_t ypos = 0;
 
@@ -157,6 +174,7 @@ Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 //Adafruit_ImageReader_LittleFS reader()
 
 // Use hardware SPI for LCD
+
 Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
 
 // Base Station global variables
@@ -182,10 +200,21 @@ uint8_t packet_len;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 
+/* Raw image bitmaps in RAM */
+//uint16_t IMG_Splash1[SCREEN_WIDTH * SCREEN_HEIGHT];
 
 
 void setup() 
 {
+  // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
+  clock_configure(
+    clk_peri,
+    0, // No auxiliary mux changes
+    CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, // Source from system clock
+    rp2040.f_cpu(), // Match the current CPU frequency (250000000 Hz)
+    rp2040.f_cpu()  // Match the integer division rate
+  );
+
   // Set up debug outputs
   pinMode(DBG0_PIN, OUTPUT);
   digitalWrite(DBG0_PIN, LOW);
@@ -221,6 +250,8 @@ void setup()
   delay(10);
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
+
+  Serial.printf("RP2040 F_CPU = %u\n", rp2040.f_cpu());
 
   while (!rf95.init()) 
   {
@@ -271,8 +302,7 @@ void setup()
 
   // Init display
   tft.begin(62500000);
-  Serial.print("spi_get_baudrate(spi1) = ");
-  Serial.println(spi_get_baudrate(spi1));
+  Serial.printf("Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
 
   // And display splash screen
   tft.setRotation(1);
@@ -283,13 +313,36 @@ void setup()
   tft.setTextSize(4);
   tft.println("Book Club");
 
-  if (!FileSys.begin()) {
+  if (!LittleFS.begin()) {
     Serial.println("LittleFS init failed");
     while(1);
   }
 
-  File root = LittleFS.open("/", "r");
+  Serial.println("Listing LittleFS root directory:");
   
+  // Open root directory
+  File root = LittleFS.open("/", "r");
+  if (!root || !root.isDirectory()) {
+    Serial.println("Failed to open root directory");
+    return;
+  }
+
+  // Iterate through all files and directories
+  File file = root.openNextFile();
+  while (file) {
+    if (file.isDirectory()) {
+      Serial.print("  DIR:  ");
+      Serial.println(file.name());
+    } else {
+      Serial.print("  FILE: ");
+      Serial.print(file.name());
+      Serial.print("\tSIZE: ");
+      Serial.println(file.size());
+    }
+    file = root.openNextFile();
+  }
+  
+#if 0
   // Pass support callback function names to library
   int16_t rc = png.open("splash1.png", pngOpen, pngClose, pngRead, pngSeek, pngDraw);
   if (rc == PNG_SUCCESS) 
@@ -306,8 +359,44 @@ void setup()
     }
     tft.endWrite();
     // How long did rendering take...
+    Serial.print("Deocde time = ");
     Serial.print(millis()-dt); Serial.println("ms");
   }
+  else
+  {
+    Serial.print("png.open() failed");
+    Serial.print(rc);
+  }
+#endif
+#if 1
+  // Open image file from LittleFS (ensure leading slash)
+  File imgFile = LittleFS.open("/splash1.bmp", "r");
+  if (!imgFile) {
+    Serial.println("Failed to open image file!");
+    while(1);
+  }
+
+  uint16_t max_line[SCREEN_WIDTH];
+
+  // Read in the image from LittleFS. We don't have enough RAM to store a full framebuffer,
+  // so we will read in each iamge one horizontal line at a time, draw that, then read the next, etc.
+  // First we have to read past the BMP header bytes (138 bytes worth)
+  imgFile.readBytes((char*)max_line, 168);
+
+  int width = 480;
+  int height = 320;
+  for (int h = 0; h < height; h++) 
+  {
+    digitalWrite(DBG0_PIN, HIGH);
+    imgFile.readBytes((char*)max_line, width * 2);
+    digitalWrite(DBG0_PIN, LOW);
+
+    digitalWrite(DBG1_PIN, HIGH);
+    tft.drawRGBBitmap(0, h, max_line, width, 1);
+    digitalWrite(DBG1_PIN, LOW);
+  }
+  imgFile.close();
+#endif
 
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
@@ -681,8 +770,9 @@ File pngfile;
 
 void * pngOpen(const char *filename, int32_t *size) {
   Serial.printf("Attempting to open %s\n", filename);
-  pngfile = FileSys.open(filename, "r");
+  pngfile = LittleFS.open(filename, "r");
   *size = pngfile.size();
+  Serial.printf("Filesize = %u\n",size);
   return &pngfile;
 }
 
@@ -692,7 +782,11 @@ void pngClose(void *handle) {
 }
 
 int32_t pngRead(PNGFILE *page, uint8_t *buffer, int32_t length) {
-  if (!pngfile) return 0;
+  if (!pngfile) 
+  {
+    Serial.printf("pngRead() failed with null pngfile\n");
+    return 0;
+  }
   page = page; // Avoid warning
   return pngfile.read(buffer, length);
 }
