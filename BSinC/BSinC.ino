@@ -12,6 +12,8 @@ a system with eight hand controllers and one base station. Players push the
 button on their hand controller and the base station records who pushed their
 button first, displaying the result on a screen.
 
+The LCD screen uses a ST7796S display controller and a FT6336U touch controller.
+
 ****** NOTE 1 *********
 
 In order for the SPI bus that talks to the LCD screen to max out at 62.5MHz, you must
@@ -114,6 +116,7 @@ board.SDA (GPIO2)
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7796S_kbv.h>
+#include <FT6336U.h>
 //#include <Adafruit_ImageReader_LittleFS.h>
 #include <LittleFS.h>
 #include <string.h>
@@ -131,24 +134,38 @@ PNG png;
 int16_t xpos = 0;
 int16_t ypos = 0;
 
-#define NEOPIXEL_PIN    4
-#define BUTTON1_PIN     10  // Red pushbutton
+/*            BASE STATION PIN MAP                */
+#define BOARD_TX        0   // Board defined UART TX (unused, breakout)
+#define BOARD_RX        1   // Board defined UART RX (unused, breakout)
+#define BOARD_SDA       2   // Board defined I2C SDA (LCD touch screen)
+#define BOARD_SCL       3   // Board defined I2C SCL (LCD touch screen)
+#define NEOPIXEL_PIN    4   // Board defined Neopixel data output
+#define TOUCH_N_RST     5   // LCD touch controller reset (breakout)
+#define BOARD_D6        6   // Unused (breakout) ((MAY BE BROKEN))
 #define BUTTON2_PIN     7   // Boot button on Feather
-#define BEEPER_PIN      11
-
-#define TFT_DC          24
-#define TFT_CS          25
+#define BOARD_MISO      8   // Board defined MISO for SPI1 - used by radio
+#define TOUCH_N_INT     9   // LCD touch controller interrupt (breakout)
+#define BUTTON1_PIN     10  // Red game reset pushbutton (breakout)
+#define BEEPER_PIN      11  // Beeper control output (breakout)
+#define BOARD_D12       12  // Unused (breakout)
+#define BOARD_D13       13  // Unused (breakout)
+#define BAORD_SCK       14  // Board defined SCK for SPI1- used by radio and LCD (breakout)
+#define BOARD_MOSI      15  // Board defined MOSI for SPI1 - used by radio and LCD (breakout)
+#define RFM95_CS        16  // Radio SPI1 Chip Select output
+#define RFM95_RST       17  // Radio Reset output
+#define RFM95_IO5       18  // Radio GPIO
+#define RFM95_IO3       19  // Radio GPIO
+#define RFM95_IO4       20  // Radio GPIO
+#define RFM95_INT       21  // Radio Interrupt input (RFM_IO0 on schematic)
+#define RFM95_IO1       22  // Radio GPIO
+#define RFM95_IO2       23  // Radio GPIO
+#define TFT_DC          24  // LCD Data/Command output (breakout)
+#define TFT_CS          25  // LCD SPI1 Chip Select (breakout)
 #define TFT_RST         -1  // Connected, but I don't know to what GPIO pin
-
-#define DBG0_PIN        26
-#define DBG1_PIN        27
-#define DBG2_PIN        28
-#define DBG3_PIN        29
-
-// Feather RP2040 w/Radio
-#define RFM95_CS        16
-#define RFM95_INT       21
-#define RFM95_RST       17
+#define DBG0_PIN        26  // General Purpose Debug Output (breakout)
+#define DBG1_PIN        27  // General Purpose Debug Output (breakout)
+#define DBG2_PIN        28  // General Purpose Debug Output (breakout)
+#define DBG3_PIN        29  // General Purpose Debug Output (breakout)
 
 #define RF95_FREQ       915.0
 #define BASE_STATION_RH_ADDRESS 10    // Base Station radio address
@@ -173,9 +190,10 @@ Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 //Adafruit_ImageReader_LittleFS reader()
 
-// Use hardware SPI for LCD
-
+// LCD display object : use hardware SPI for LCD
 Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
+// LCD touch controller object
+FT6336U ft6336u(TOUCH_N_RST, TOUCH_N_INT);
 
 // Base Station global variables
 bool base_station_is_reset;
@@ -199,6 +217,7 @@ uint32_t time_bytes_ms;
 uint8_t packet_len;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
+bool user_touch_happened;
 
 /* Raw image bitmaps in RAM */
 //uint16_t IMG_Splash1[SCREEN_WIDTH * SCREEN_HEIGHT];
@@ -216,6 +235,17 @@ void setup()
   );
 
   // Set up debug outputs
+  pinMode(TOUCH_N_RST, OUTPUT);
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+  digitalWrite(TOUCH_N_RST, LOW);
+  delay(100);
+  digitalWrite(TOUCH_N_RST, HIGH);
+  delay(100);
+  digitalWrite(TOUCH_N_RST, LOW);
+  delay(100);
+  digitalWrite(TOUCH_N_RST, HIGH);
+
+  
   pinMode(DBG0_PIN, OUTPUT);
   digitalWrite(DBG0_PIN, LOW);
   pinMode(DBG1_PIN, OUTPUT);
@@ -397,6 +427,18 @@ void setup()
   }
   imgFile.close();
 #endif
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+
+  // Init the touch controller
+  ft6336u.begin();
+
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+  Serial.print("FT6336U Firmware Version: ");
+  Serial.println(ft6336u.read_firmware_id());
+  Serial.print("FT6336U Device Mode: ");
+  Serial.println(ft6336u.read_device_mode());
+
+  attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
 
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
@@ -437,12 +479,37 @@ void setup()
   tft.setCursor(150, 160);
   tft.println("Question");
 }
+
+// Called whenever there is a falling edge on the touch controller's interrupt line
+void touch_ISR(void)
+{
+  user_touch_happened = true;
+}
   
 void loop() 
 {
   uint32_t i;
 
   digitalWrite(DBG2_PIN, HIGH);
+
+  if(user_touch_happened) {
+    user_touch_happened = false;
+    Serial.print("FT6336U TD Status: ");
+    Serial.println(ft6336u.read_td_status());
+    Serial.print("FT6336U Touch Event/ID 1: (");
+    Serial.print(ft6336u.read_touch1_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_id()); Serial.println(")");
+    Serial.print("FT6336U Touch Position 1: (");
+    Serial.print(ft6336u.read_touch1_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch1_y()); Serial.println(")");
+    Serial.print("FT6336U Touch Weight/MISC 1: (");
+    Serial.print(ft6336u.read_touch1_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_misc()); Serial.println(")");
+    Serial.print("FT6336U Touch Event/ID 2: (");
+    Serial.print(ft6336u.read_touch2_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_id()); Serial.println(")");
+    Serial.print("FT6336U Touch Position 2: (");
+    Serial.print(ft6336u.read_touch2_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch2_y()); Serial.println(")");
+    Serial.print("FT6336U Touch Weight/MISC 2: (");
+    Serial.print(ft6336u.read_touch2_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_misc()); Serial.println(")");
+  }
+
 
   if (beeper_off_time)
   {
