@@ -117,16 +117,11 @@ board.SDA (GPIO2)
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7796S_kbv.h>
 #include <FT6336U.h>
-//#include <Adafruit_ImageReader_LittleFS.h>
 #include <LittleFS.h>
 #include <string.h>
 #include <hardware/clocks.h> // Required for clock configuration functions
 
 #define FileSys LittleFS
-
-#include <PNGdec.h> 
-
-PNG png;
 
 #define SCREEN_WIDTH    480
 #define MAX_IMAGE_WIDTH SCREEN_WIDTH
@@ -141,7 +136,7 @@ int16_t ypos = 0;
 #define BOARD_SCL       3   // Board defined I2C SCL (LCD touch screen)
 #define NEOPIXEL_PIN    4   // Board defined Neopixel data output
 #define TOUCH_N_RST     5   // LCD touch controller reset (breakout)
-#define BOARD_D6        6   // Unused (breakout) ((MAY BE BROKEN))
+#define BOARD_D6        6   // Unused (breakout)
 #define BUTTON2_PIN     7   // Boot button on Feather
 #define BOARD_MISO      8   // Board defined MISO for SPI1 - used by radio
 #define TOUCH_N_INT     9   // LCD touch controller interrupt (breakout)
@@ -188,10 +183,9 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 // Neopixel object
 Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
-//Adafruit_ImageReader_LittleFS reader()
-
 // LCD display object : use hardware SPI for LCD
 Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
+
 // LCD touch controller object
 FT6336U ft6336u(TOUCH_N_RST, TOUCH_N_INT);
 
@@ -219,10 +213,6 @@ uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 bool user_touch_happened;
 
-/* Raw image bitmaps in RAM */
-//uint16_t IMG_Splash1[SCREEN_WIDTH * SCREEN_HEIGHT];
-
-
 void setup() 
 {
   // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
@@ -237,14 +227,6 @@ void setup()
   // Set up debug outputs
   pinMode(TOUCH_N_RST, OUTPUT);
   pinMode(TOUCH_N_INT, INPUT_PULLUP);
-  digitalWrite(TOUCH_N_RST, LOW);
-  delay(100);
-  digitalWrite(TOUCH_N_RST, HIGH);
-  delay(100);
-  digitalWrite(TOUCH_N_RST, LOW);
-  delay(100);
-  digitalWrite(TOUCH_N_RST, HIGH);
-
   
   pinMode(DBG0_PIN, OUTPUT);
   digitalWrite(DBG0_PIN, LOW);
@@ -337,11 +319,13 @@ void setup()
   // And display splash screen
   tft.setRotation(1);
   tft.invertDisplay(true);
-  tft.fillScreen(ST7796S_WHITE);
-  tft.setCursor(140, 140);
-  tft.setTextColor(ST7796S_BLACK);  
-  tft.setTextSize(4);
-  tft.println("Book Club");
+
+
+  //tft.fillScreen(ST7796S_WHITE);
+  //tft.setCursor(140, 140);
+  //tft.setTextColor(ST7796S_BLACK);  
+  //tft.setTextSize(4);
+  //tft.println("Book Club");
 
   if (!LittleFS.begin()) {
     Serial.println("LittleFS init failed");
@@ -372,61 +356,9 @@ void setup()
     file = root.openNextFile();
   }
   
-#if 0
-  // Pass support callback function names to library
-  int16_t rc = png.open("splash1.png", pngOpen, pngClose, pngRead, pngSeek, pngDraw);
-  if (rc == PNG_SUCCESS) 
-  {
-    tft.startWrite();
-    Serial.printf("image specs: (%d x %d), %d bpp, pixel type: %d\n", png.getWidth(), png.getHeight(), png.getBpp(), png.getPixelType());
-    uint32_t dt = millis();
-    if (png.getWidth() > MAX_IMAGE_WIDTH) {
-      Serial.println("Image too wide for allocated line buffer size!");
-    }
-    else {
-      rc = png.decode(NULL, 0);
-      png.close();
-    }
-    tft.endWrite();
-    // How long did rendering take...
-    Serial.print("Deocde time = ");
-    Serial.print(millis()-dt); Serial.println("ms");
-  }
-  else
-  {
-    Serial.print("png.open() failed");
-    Serial.print(rc);
-  }
-#endif
-#if 1
-  // Open image file from LittleFS (ensure leading slash)
-  File imgFile = LittleFS.open("/splash1.bmp", "r");
-  if (!imgFile) {
-    Serial.println("Failed to open image file!");
-    while(1);
-  }
+  // Read in and display the splash screen
+  draw_bmp("/BookClubSplash.bmp", 0, 0);
 
-  uint16_t max_line[SCREEN_WIDTH];
-
-  // Read in the image from LittleFS. We don't have enough RAM to store a full framebuffer,
-  // so we will read in each iamge one horizontal line at a time, draw that, then read the next, etc.
-  // First we have to read past the BMP header bytes (138 bytes worth)
-  imgFile.readBytes((char*)max_line, 168);
-
-  int width = 480;
-  int height = 320;
-  for (int h = 0; h < height; h++) 
-  {
-    digitalWrite(DBG0_PIN, HIGH);
-    imgFile.readBytes((char*)max_line, width * 2);
-    digitalWrite(DBG0_PIN, LOW);
-
-    digitalWrite(DBG1_PIN, HIGH);
-    tft.drawRGBBitmap(0, h, max_line, width, 1);
-    digitalWrite(DBG1_PIN, LOW);
-  }
-  imgFile.close();
-#endif
   pinMode(TOUCH_N_INT, INPUT_PULLUP);
 
   // Init the touch controller
@@ -469,15 +401,17 @@ void setup()
   // When non-zero, causes us to ignore all received packets
   packet_rx_resume_time = 0;
 
-  // Blank the LCD and display green background
-  tft.fillScreen(ST7796S_GREEN);
+  draw_bmp("/NextQuizQuestion.bmp", 0, 0);
 
-  tft.setCursor(140, 120);
-  tft.setTextColor(ST7796S_BLACK);  
-  tft.setTextSize(4);
-  tft.println("Next Quiz");
-  tft.setCursor(150, 160);
-  tft.println("Question");
+  // Blank the LCD and display green background
+  //tft.fillScreen(ST7796S_GREEN);
+
+  //tft.setCursor(140, 120);
+  //tft.setTextColor(ST7796S_BLACK);  
+  //tft.setTextSize(4);
+  //tft.println("Next Quiz");
+  //tft.setCursor(150, 160);
+  //tft.println("Question");
 }
 
 // Called whenever there is a falling edge on the touch controller's interrupt line
@@ -494,20 +428,21 @@ void loop()
 
   if(user_touch_happened) {
     user_touch_happened = false;
-    Serial.print("FT6336U TD Status: ");
-    Serial.println(ft6336u.read_td_status());
-    Serial.print("FT6336U Touch Event/ID 1: (");
-    Serial.print(ft6336u.read_touch1_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_id()); Serial.println(")");
-    Serial.print("FT6336U Touch Position 1: (");
-    Serial.print(ft6336u.read_touch1_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch1_y()); Serial.println(")");
-    Serial.print("FT6336U Touch Weight/MISC 1: (");
-    Serial.print(ft6336u.read_touch1_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_misc()); Serial.println(")");
-    Serial.print("FT6336U Touch Event/ID 2: (");
-    Serial.print(ft6336u.read_touch2_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_id()); Serial.println(")");
-    Serial.print("FT6336U Touch Position 2: (");
-    Serial.print(ft6336u.read_touch2_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch2_y()); Serial.println(")");
-    Serial.print("FT6336U Touch Weight/MISC 2: (");
-    Serial.print(ft6336u.read_touch2_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_misc()); Serial.println(")");
+    if (ft6336u.read_td_status())
+    {
+      //Serial.print("FT6336U Touch Event/ID 1: (");
+      //Serial.print(ft6336u.read_touch1_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_id()); Serial.println(")");
+      //Serial.print("FT6336U Touch Position 1: (");
+      Serial.printf("\nTouch at %3u,%3u", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
+      //Serial.print("FT6336U Touch Weight/MISC 1: (");
+      //Serial.print(ft6336u.read_touch1_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_misc()); Serial.println(")");
+      //Serial.print("FT6336U Touch Event/ID 2: (");
+      //Serial.print(ft6336u.read_touch2_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_id()); Serial.println(")");
+      //Serial.print("FT6336U Touch Position 2: (");
+      //Serial.print(ft6336u.read_touch2_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch2_y()); Serial.println(")");
+      //Serial.print("FT6336U Touch Weight/MISC 2: (");
+      //Serial.print(ft6336u.read_touch2_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_misc()); Serial.println(")");
+    }
   }
 
 
@@ -816,50 +751,73 @@ void loop()
   }
 }
 
-//=========================================v==========================================
-//                                      pngDraw
-//====================================================================================
-// This next function will be called during decoding of the png file to
-// render each image line to the TFT.  If you use a different TFT library
-// you will need to adapt this function to suit.
-// Callback function to draw pixels to the display
-int pngDraw(PNGDRAW *pDraw) {
-  uint16_t lineBuffer[MAX_IMAGE_WIDTH];
-  png.getLineAsRGB565(pDraw, lineBuffer, PNG_RGB565_BIG_ENDIAN, 0xffffffff);
-//  tft.pushImage(xpos, ypos + pDraw->y, pDraw->iWidth, 1, lineBuffer);
-  return 1;
-}
+// Custom bitmap drawing code, for this project, and this display.
+// To create files that work, use the image magick command line at the top of this sketch.
+//
+// Pass in the filename of the bitmap file, and the upper left X and Y coordinates you want to draw it on the screen.
+// Filename must have a leading forward slash on it.
+// This function opens the file, reads it out line by line and writes it to the screen.
+int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
+{
+  uint16_t max_line[SCREEN_WIDTH] = {0};
+  int32_t retval = 0;     // Start off with no errors
+  uint16_t width = 0;
+  uint16_t height = 0;
 
-// Here are the callback functions that the decPNG library
-// will use to open files, fetch data and close the file.
-
-File pngfile;
-
-void * pngOpen(const char *filename, int32_t *size) {
-  Serial.printf("Attempting to open %s\n", filename);
-  pngfile = LittleFS.open(filename, "r");
-  *size = pngfile.size();
-  Serial.printf("Filesize = %u\n",size);
-  return &pngfile;
-}
-
-void pngClose(void *handle) {
-  File pngfile = *((File*)handle);
-  if (pngfile) pngfile.close();
-}
-
-int32_t pngRead(PNGFILE *page, uint8_t *buffer, int32_t length) {
-  if (!pngfile) 
+  if (!filename)
   {
-    Serial.printf("pngRead() failed with null pngfile\n");
-    return 0;
+    retval = -1;
+    return(retval);
   }
-  page = page; // Avoid warning
-  return pngfile.read(buffer, length);
-}
+  // Open image file from LittleFS (ensure leading slash)
+  File imgFile = LittleFS.open(filename, "r");
+  if (!imgFile) {
+    Serial.printf("Failed to open image file %s\n", filename);
+    retval = -1;
+    return(retval);
+  }
 
-int32_t pngSeek(PNGFILE *page, int32_t position) {
-  if (!pngfile) return 0;
-  page = page; // Avoid warning
-  return pngfile.seek(position);
+  // Read in the image from LittleFS. We don't have enough RAM to store a full framebuffer,
+  // so we will read in each iamge one horizontal line at a time, draw that, then read the next, etc.
+  // First we have to read past the BMP header bytes (168 bytes worth). This block contains the initial
+  // file header (BITMAPFILEHEADER) - 14 bytes, extended information header (BITMAPV5HEADER) - 124 bytes
+  imgFile.readBytes((char*)max_line, 138);
+
+  // Confirm that we have a header of the right size. So we check the BitmapOffset field of the 14 byte header
+  if ((max_line[5] + (max_line[6] << 16)) != 138)
+  {
+    Serial.printf("Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
+    retval = -1;
+    return(retval);
+  }
+
+  // Extract the image dimensions from the bitmap header. We don't have to be very smart about this
+  // because we know exactly how each image got created and what bitmap header format it uses.
+  width = max_line[9] + (max_line[10] << 16);
+  height = max_line[11] + (max_line[12] << 16);
+
+  // Check that our width and height are not larger than our screen
+  if ((width > SCREEN_WIDTH) || (height > SCREEN_HEIGHT))
+  {
+    Serial.printf("Image too large to fit on screen.\n");
+    retval = -1;
+    return(retval);
+  }
+
+  // This tells the display we are going to feed it pixels for this rectangular area
+  tft.setAddrWindow(x_loc, y_loc, width, height);
+
+  // Read out the image pixels, one horizontal line at a time, and place at the right point on the screen
+  for (int h = 0; h < height; h++) 
+  {
+    digitalWrite(DBG0_PIN, HIGH);
+    imgFile.readBytes((char*)max_line, width * 2);
+    digitalWrite(DBG0_PIN, LOW);
+
+    digitalWrite(DBG1_PIN, HIGH);
+    tft.drawRGBBitmap(0, h, max_line, width, 1);
+    digitalWrite(DBG1_PIN, LOW);
+  }
+  imgFile.close();
+  return(retval);
 }
