@@ -320,12 +320,12 @@ void setup()
   tft.setRotation(1);
   tft.invertDisplay(true);
 
-
-  //tft.fillScreen(ST7796S_WHITE);
-  //tft.setCursor(140, 140);
-  //tft.setTextColor(ST7796S_BLACK);  
-  //tft.setTextSize(4);
-  //tft.println("Book Club");
+//  tft.fillScreen(ST7796S_WHITE);
+//  tft.setCursor(140, 140);
+//  tft.setTextColor(ST7796S_BLACK);  
+//  tft.setTextSize(1);
+//  tft.println("Book Club");
+//  delay(1000);
 
   if (!LittleFS.begin()) {
     Serial.println("LittleFS init failed");
@@ -401,7 +401,7 @@ void setup()
   // When non-zero, causes us to ignore all received packets
   packet_rx_resume_time = 0;
 
-  draw_bmp("/NextQuizQuestion.bmp", 0, 0);
+  draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
 
   // Blank the LCD and display green background
   //tft.fillScreen(ST7796S_GREEN);
@@ -476,15 +476,16 @@ void loop()
     Serial.println(" System is now reset");
 
     // Blank the LCD and display green background
-    tft.fillScreen(ST7796S_GREEN);
+    //tft.fillScreen(ST7796S_GREEN);
 
-    tft.setCursor(140, 120);
-    tft.setTextColor(ST7796S_BLACK);  
-    tft.setTextSize(4);
-    tft.println("Next Quiz");
-    tft.setCursor(150,  160);
-    tft.println("Question");
-
+    //tft.setCursor(140, 120);
+    //tft.setTextColor(ST7796S_BLACK);  
+    //tft.setTextSize(4);
+    //tft.println("Next Quiz");
+    //tft.setCursor(150,  160);
+    //tft.println("Question");
+    draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
+  
     any_btn_pushed = false;
 
     // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
@@ -663,13 +664,17 @@ void loop()
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
-                  tft.fillScreen(ST7796S_RED);
-
-                  tft.setCursor(0, 25);
-                  tft.setTextColor(ST7796S_WHITE);  
-                  tft.setTextSize(3);
-                  tft.println("   Player button pushes");
-                  tft.println("        in order:");
+                  tft.fillScreen(ST7796S_WHITE);
+                  draw_bmp("/BuzzerActivated.bmp", 0, 0);
+                  draw_bmp("/Ania.bmp", 10, 50);
+                  draw_bmp("/Brian.bmp", 10, 92);
+                  draw_bmp("/Emily.bmp", 10, 134);
+                  draw_bmp("/Grant.bmp", 10, 176);
+                  //tft.setCursor(0, 25);
+                  //tft.setTextColor(ST7796S_WHITE);  
+                  //tft.setTextSize(3);
+                  //tft.println("   Player button pushes");
+                  //tft.println("        in order:");
 
                   // Sort hand controllers in order that they pushed their buttons
                   // button_push_times[] is zero for a hand controller if they haven't pushed their button
