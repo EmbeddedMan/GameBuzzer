@@ -820,7 +820,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
     digitalWrite(DBG0_PIN, LOW);
 
     digitalWrite(DBG1_PIN, HIGH);
-    tft.drawRGBBitmap(0, h, max_line, width, 1);
+    tft.drawRGBBitmap(x_loc, y_loc + h, max_line, width, 1);
     digitalWrite(DBG1_PIN, LOW);
   }
   imgFile.close();
