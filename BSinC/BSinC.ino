@@ -24,9 +24,26 @@ setting in the Arduino IDE.
 
 To convert a PNG image into a bitmap format that can be directly read into the display (RGB656),
 use the following image magick command:
-$ magick ./splash1.png -flip -type TrueColor -depth 16 -compress none -define bmp:subtype=RGB565 splash1.bmp
+magick "./../origonal images/Buzzer Activated.png" -filter Mitchell -resize 480x -flip -type TrueColor -depth 16 -compress none -define bmp:subtype=RGB565 BuzzerActivated.bmp
 The -flip option is necessary because Adafruit_GFX reads bitmap images from the lower left rather than the upper left.
+Note that this command line as listed above resizes the image and uses the Mitchell filter for doing so.
 
+****** NOTE 3 *********
+The pins on the LCD header go as follows (from bottom to top)
+- VCC
+- GND
+- LCD_CS
+- LCD_RST
+- LCD_RS
+- SDI (MOSI)
+- SCK
+- LED
+- SDO (MISO)
+- CTP_SCL
+- CTP_RST
+- CTP_SDA
+- CTP_INT
+- SD_CS
 
 (Pinout of Feather RP2040 RFM in CircuitPython)
 board.A0 (GPIO26)   DBG0
@@ -136,7 +153,7 @@ int16_t ypos = 0;
 #define BOARD_SCL       3   // Board defined I2C SCL (LCD touch screen)
 #define NEOPIXEL_PIN    4   // Board defined Neopixel data output
 #define TOUCH_N_RST     5   // LCD touch controller reset (breakout)
-#define BOARD_D6        6   // Unused (breakout)
+#define NEOHAIN_PIN     6   // Chain of Neopixels around box edge (breakout)
 #define BUTTON2_PIN     7   // Boot button on Feather
 #define BOARD_MISO      8   // Board defined MISO for SPI1 - used by radio
 #define TOUCH_N_INT     9   // LCD touch controller interrupt (breakout)
@@ -810,14 +827,14 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   }
 
   // This tells the display we are going to feed it pixels for this rectangular area
-  tft.setAddrWindow(x_loc, y_loc, width, height);
+  //tft.setAddrWindow(x_loc, y_loc, width, height);
 
   // Read out the image pixels, one horizontal line at a time, and place at the right point on the screen
   for (int h = 0; h < height; h++) 
   {
-    digitalWrite(DBG0_PIN, HIGH);
+    //digitalWrite(DBG0_PIN, HIGH);
     imgFile.readBytes((char*)max_line, width * 2);
-    digitalWrite(DBG0_PIN, LOW);
+    //digitalWrite(DBG0_PIN, LOW);
 
     digitalWrite(DBG1_PIN, HIGH);
     tft.drawRGBBitmap(x_loc, y_loc + h, max_line, width, 1);
