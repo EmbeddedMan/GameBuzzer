@@ -72,6 +72,7 @@
       "diff_pair_dimensions": [],
       "drc_exclusions": [],
       "meta": {
+        "filename": "board_design_settings.json",
         "version": 2
       },
       "rule_severities": {
@@ -140,9 +141,9 @@
       },
       "rules": {
         "max_error": 0.005,
-        "min_clearance": 0.0,
+        "min_clearance": 0.1778,
         "min_connection": 0.0,
-        "min_copper_edge_clearance": 0.5,
+        "min_copper_edge_clearance": 0.025,
         "min_groove_width": 0.0,
         "min_hole_clearance": 0.25,
         "min_hole_to_hole": 0.25,
@@ -153,7 +154,7 @@
         "min_text_height": 0.8,
         "min_text_thickness": 0.08,
         "min_through_hole_diameter": 0.3,
-        "min_track_width": 0.2,
+        "min_track_width": 0.1778,
         "min_via_annular_width": 0.1,
         "min_via_diameter": 0.5,
         "solder_mask_to_copper_clearance": 0.0,
@@ -488,7 +489,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "BSBoard.kicad_pro",
+    "filename": "Adafruit Feather RP2350.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -504,12 +505,50 @@
         "microvia_drill": 0.1,
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 2147483647,
+        "priority": -1,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.2,
         "tuning_profile": "",
         "via_diameter": 0.6,
         "via_drill": 0.3,
+        "wire_width": 6
+      },
+      {
+        "bus_width": 12,
+        "clearance": 0.2,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "name": "gnd",
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "priority": -1,
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "track_width": 0.2,
+        "tuning_profile": "",
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "wire_width": 6
+      },
+      {
+        "bus_width": 12,
+        "clearance": 0.2,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "name": "power",
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "priority": -1,
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "track_width": 0.2032,
+        "tuning_profile": "",
+        "via_diameter": 0.635,
+        "via_drill": 0.381,
         "wire_width": 6
       }
     ],
@@ -518,7 +557,24 @@
     },
     "net_colors": null,
     "netclass_assignments": null,
-    "netclass_patterns": []
+    "netclass_patterns": [
+      {
+        "netclass": "power",
+        "pattern": "GND"
+      },
+      {
+        "netclass": "power",
+        "pattern": "VBUS"
+      },
+      {
+        "netclass": "power",
+        "pattern": "VBAT"
+      },
+      {
+        "netclass": "power",
+        "pattern": "N$8"
+      }
+    ]
   },
   "pcbnew": {
     "last_paths": {
@@ -649,25 +705,25 @@
     "meta": {
       "version": 1
     },
-    "page_layout_descr_file": "",
+    "page_layout_descr_file": "empty.kicad_wks",
     "plot_directory": "",
     "reuse_designators": true,
     "subpart_first_id": 65,
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "BSBoard.kicad_sch",
-        "name": "Root",
-        "uuid": "848aee10-ebf1-4fb9-8efe-543ef808b77c"
+        "filename": "Adafruit Feather RP2350.kicad_sch",
+        "name": "Adafruit Feather RP2350_1",
+        "uuid": "3cbd95d6-9f26-44fc-a813-b7a93252c36c"
       }
     ],
-    "used_designators": "U$31-32,U$34-35,Q1,Q3,A1,QD1-2,U1-6,#GND2-11,#GND13,#GND15-16,#GND33,R1-19,R21,J1-2,SW1-2,#PWR1-45,#U$1-12,#U$14-30,#U$33,#U$36-72,D1-18,C1-22,L1-2,CHG1,CN2,CONN1,D+1,D\\-1,SJ1,DEBUG1,JP1,JP3,LED1,SWC1,SWD1,TP3,X1-2,X6,Y1",
+    "used_designators": "",
     "variants": []
   },
   "sheets": [
     [
-      "848aee10-ebf1-4fb9-8efe-543ef808b77c",
-      "Root"
+      "3cbd95d6-9f26-44fc-a813-b7a93252c36c",
+      "Adafruit Feather RP2350_1"
     ]
   ],
   "text_variables": {},
