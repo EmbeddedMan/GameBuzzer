@@ -5,7 +5,7 @@
 """
 Base Station
 
-Code for game hand controller project. July 2025, Brian Schmalz, brian@schmalzhaus.com
+Code for game hand controller project. Begun in July 2025, Brian Schmalz, brian@schmalzhaus.com
 
 This code is meant to run on an AdaFruit Feather RP2040 RFM95 board. It is part of
 a system with eight hand controllers and one base station. Players push the
@@ -18,7 +18,10 @@ The LCD screen uses a ST7796S display controller and a FT6336U touch controller.
 
 In order for the SPI bus that talks to the LCD screen to max out at 62.5MHz, you must
 overclock the MCU core speed to 250 Mhz. This is done in the Tools->CPU Speed->250 MHZ
-setting in the Arduino IDE.
+setting in the Arduino IDE. This does not appear to create any problems for the processor
+or LCD. The RFM radio uses a slower SPI clock for its transactions even though it's on the
+same SPI bus
+
 
 ****** NOTE 2 *********
 
@@ -27,6 +30,10 @@ use the following image magick command:
 magick "./../origonal images/Buzzer Activated.png" -filter Mitchell -resize 480x -flip -type TrueColor -depth 16 -compress none -define bmp:subtype=RGB565 BuzzerActivated.bmp
 The -flip option is necessary because Adafruit_GFX reads bitmap images from the lower left rather than the upper left.
 Note that this command line as listed above resizes the image and uses the Mitchell filter for doing so.
+
+To upload files from the 'data' folder to the Feather's Flash, use Ctrl-Shift-P, then select "Upload LittleFS (Pico/etc)"
+
+You must select "Tools->Flash Size->8M (Sketch: 1MB, FS: 7MB)" in order to allocate space for the LittleFS.
 
 ****** NOTE 3 *********
 The pins on the LCD header go as follows (from bottom to top)
@@ -44,6 +51,36 @@ The pins on the LCD header go as follows (from bottom to top)
 - CTP_SDA
 - CTP_INT
 - SD_CS
+
+Pinout PDF of Feathre RP2040-RFM:
+https://github.com/adafruit/Adafruit-Feather-RP2040-RFM-PCB/blob/main/Adafruit_Feather_RP2040_RFM9x_Pinout_2.pdf
+
+Datasheet PDF of RFM95 radio module:
+https://www.mobilefish.com/download/lora/RFM95_96_97_98W.pdf
+
+The pinout for the RFM95 radio (and Feather) is as follows:
+/--------------------------------------------------------------------\
+| O                              USB                               O |
+|                                                                    |
+| * RESET                                                            |
+| * 3.3V                                              BATTERY GND  * |
+| * 3.3V                                                BATTERY +  * |
+| * GND                                                              |
+| * A0                                                        VBAT * |
+| * A1                                                          EN * |
+| * A2                                                        VBUS * |
+| * A3                       RFM95                             D13 * |
+| * D24           * GND                   DIO2 *               D12 * |
+| * D25           * MISO                  DIO1 *               D11 * |
+| * SCK           * MOSI                  DIO0 *               D10 * |
+| * MOSI          * SCK                   3.3V *                D9 * |
+| * MISO          * NSS                   DIO4 *                D6 * |
+| * RX            * RESET                 DIO3 *                D5 * |
+| * TX            * DIO5                   GND *               SCL * |
+| * GND           * GND                    ANT *               SDA * |
+|                                                                    |
+| O     SCL SDA 3V3 GND                    ANTENNA                 O |
+\--------------------------------------------------------------------/
 
 (Pinout of Feather RP2040 RFM in CircuitPython)
 board.A0 (GPIO26)   DBG0
@@ -126,6 +163,25 @@ board.SDA (GPIO2)
 #   indicating that the button push has been registered at the base station.
 # After reset, the base station will display its neopixel as green. Once it
 #   receives the first button press it will display as red.
+#
+# TIMING:
+#
+# Every 140 ms, the base station will sent out a sync packet. This takes up 10.35 ms of air time,
+# and takes up 10.59 ms with SPI packets before and after airtime.
+# Thus the cycle time of the whole system is 140 ms.
+# In 1 s, there are a bit more than 7 of these cycles (7 x 140 = 980 ms)
+#
+# With about 11 ms of this 140 ms cycle time taken up by the base station, that leaves 129 ms for 
+# hand controllers to answer back.
+#
+# Each hand controller is given a 15ms window to send back their heartbeat packet to the base station.
+# There is a 5ms dead time after the hand controlers finish receiving and processing the base station's
+# sync packet. Thenk after the 5ms, each of the eight hand controllers takes turns in their 15 ms window.
+# They send back a packet that takes 9 ms of airtime. So this should leave about 6ms of dead air betwee
+# each handshake packet.
+#
+# (8 * 15) + 5 = 125 ms.
+#
 */
 
 #include <SPI.h>
@@ -229,6 +285,7 @@ uint8_t packet_len;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 bool user_touch_happened;
+bool last_button_state = true;
 
 void setup() 
 {
@@ -476,62 +533,74 @@ void loop()
   // Look for button press to reset our state
   if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
   {
-    // We have a button press!
-    // Record the local time
-    btn_press_time = millis();
-    
-    rf95.setModeIdle();
-
-    base_station_is_reset = true;
-    memset(button_push_times, 0x00, sizeof(button_push_times));
-    memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
-    memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
-
-    pixel.setPixelColor(0, COLOR_GREEN);
-    pixel.show();
-    Serial.print(millis());
-    Serial.println(" System is now reset");
-
-    // Blank the LCD and display green background
-    //tft.fillScreen(ST7796S_GREEN);
-
-    //tft.setCursor(140, 120);
-    //tft.setTextColor(ST7796S_BLACK);  
-    //tft.setTextSize(4);
-    //tft.println("Next Quiz");
-    //tft.setCursor(150,  160);
-    //tft.println("Question");
-    draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
-  
-    any_btn_pushed = false;
-
-    // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
-    // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
-    // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
-    for (i=0; i < 8; i++)
+    // Only take action on the falling edge of the button signal
+    if (last_button_state == false)
     {
-      if (button_push_times[i] > 0)
-      {
-        hc_seen_reset[i] = false;
-      }
-      else
-      {
-        hc_seen_reset[i] = true;
-      }
-    }
+      // We have a button press!
+      // Record the local time
+      btn_press_time = millis();
 
-    // Set blanking time to ignore any hand controller packets for 1.5s
-    /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
-    packet_rx_resume_time = millis() + 5000;
-    // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
-    // next_sync_time = millis() + 1110;
+      rf95.setModeIdle();
+
+      base_station_is_reset = true;
+      memset(button_push_times, 0x00, sizeof(button_push_times));
+      memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
+      memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
+
+      pixel.setPixelColor(0, COLOR_GREEN);
+      pixel.show();
+      Serial.print(millis());
+      Serial.println(" System is now reset");
+
+      // Blank the LCD and display green background
+      //tft.fillScreen(ST7796S_GREEN);
+
+      //tft.setCursor(140, 120);
+      //tft.setTextColor(ST7796S_BLACK);
+      //tft.setTextSize(4);
+      //tft.println("Next Quiz");
+      //tft.setCursor(150,  160);
+      //tft.println("Question");
+      draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
+
+      any_btn_pushed = false;
+
+      // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
+      // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
+      // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
+      for (i = 0; i < 8; i++) {
+        if (button_push_times[i] > 0) {
+          hc_seen_reset[i] = false;
+        } else {
+          hc_seen_reset[i] = true;
+        }
+      }
+
+      // Set blanking time to ignore any hand controller packets for 1.5s
+      /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
+      packet_rx_resume_time = millis() + 5000;
+      // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
+      // next_sync_time = millis() + 1110;
+    }
+    last_button_state = true;
+  }
+  else
+  {
+    last_button_state = false;
   }
 
   //delay(1);
 
   // Has enough time gone by? Time to send a sync packet?
-  if (millis() >= next_sync_time)
-  {
+  // The trick here is that we don't want to send a sync packet if a hand controller is already transmitting.
+  // It would be cool to be able to check that in real time from the radio, but I don't know how to do that yet.
+  // Instead, we define a window of 3ms. If more than 140 ms has elapsed since the last sync packet BUT NOT MORE
+  // THAN 143, then we send out a new sync packet since that's our "window" to send. If more time than that has
+  // elapsed, then we just add 140 ms to the next_sync_time and try again at that point.
+  if (millis() >= (next_sync_time + 3)) {
+    next_sync_time += TIME_SYNC_PACKET_PERIOD_MS;
+  }
+  else if (millis() >= next_sync_time) {
     next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers

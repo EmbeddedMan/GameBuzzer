@@ -1,0 +1,12 @@
+To set up the HackRF Pro for showing RSSI of LoRA packets from the game buzzers:
+
+Use the three pins on the side of the HackRF Pro: outer two are ground, inner one is RSSI output.
+Tie the middle pin to Saleae Pro 16
+Open up the 'radioconca Prompt' (from Start menu)
+
+
+To turn on the RSSI output use this command line:
+hackrf_debug -m -n 8 -w 0x3420
+
+To start the HackRF Pro up in receiving mode at 915Mhz, use the following command line:
+hackrf_transfer -r reception_915mhz.iq -f 915000000 -s 8000000 -g 16 -l 16
