@@ -184,6 +184,7 @@ board.SDA (GPIO2)
 #
 */
 
+#include <Wire.h>
 #include <SPI.h>
 #include <RH_RF95.h>
 #include <Adafruit_NeoPixel.h>
@@ -205,18 +206,19 @@ int16_t ypos = 0;
 /*            BASE STATION PIN MAP                */
 #define BOARD_TX        0   // Board defined UART TX (unused, breakout)
 #define BOARD_RX        1   // Board defined UART RX (unused, breakout)
-#define BOARD_SDA       2   // Board defined I2C SDA (LCD touch screen)
-#define BOARD_SCL       3   // Board defined I2C SCL (LCD touch screen)
+#define TFT_SCK         2   // Remapped LCD SPI0 CLK (breakout)
+#define TFT_MOSI        3   // Remapped LCD SPI0 MOSI (breakout)
 #define NEOPIXEL_PIN    4   // Board defined Neopixel data output
 #define TOUCH_N_RST     5   // LCD touch controller reset (breakout)
 #define NEOHAIN_PIN     6   // Chain of Neopixels around box edge (breakout)
 #define BUTTON2_PIN     7   // Boot button on Feather
 #define BOARD_MISO      8   // Board defined MISO for SPI1 - used by radio
+#define TFT_MISO        -1  // LCD SPI0 MISO not connected
 #define TOUCH_N_INT     9   // LCD touch controller interrupt (breakout)
 #define BUTTON1_PIN     10  // Red game reset pushbutton (breakout)
 #define BEEPER_PIN      11  // Beeper control output (breakout)
-#define BOARD_D12       12  // Unused (breakout)
-#define BOARD_D13       13  // Unused (breakout)
+#define TOUCH_SDA       12  // Remapped I2C SDA (LCD touch screen)
+#define TOUCH_SCL       13  // Remapped I2C SCL (LCD touch screen)
 #define BAORD_SCK       14  // Board defined SCK for SPI1- used by radio and LCD (breakout)
 #define BOARD_MOSI      15  // Board defined MOSI for SPI1 - used by radio and LCD (breakout)
 #define RFM95_CS        16  // Radio SPI1 Chip Select output
@@ -227,8 +229,8 @@ int16_t ypos = 0;
 #define RFM95_INT       21  // Radio Interrupt input (RFM_IO0 on schematic)
 #define RFM95_IO1       22  // Radio GPIO
 #define RFM95_IO2       23  // Radio GPIO
-#define TFT_DC          24  // LCD Data/Command output (breakout)
-#define TFT_CS          25  // LCD SPI1 Chip Select (breakout)
+#define TFT_CS          24  // LCD SPI0 Chip Select (breakout)
+#define TFT_DC          25  // LCD Data/Command output (breakout)
 #define TFT_RST         -1  // Connected, but I don't know to what GPIO pin
 #define DBG0_PIN        26  // General Purpose Debug Output (breakout)
 #define DBG1_PIN        27  // General Purpose Debug Output (breakout)
@@ -249,7 +251,6 @@ int16_t ypos = 0;
 #define COLOR_YELLOW    pixel.Color(255, 255, 0)
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
 
-
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
@@ -257,10 +258,10 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 // LCD display object : use hardware SPI for LCD
-Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(TFT_CS, TFT_DC, TFT_RST);
+Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 
 // LCD touch controller object
-FT6336U ft6336u(TOUCH_N_RST, TOUCH_N_INT);
+FT6336U ft6336u(TOUCH_SDA, TOUCH_SCL, TOUCH_N_RST, TOUCH_N_INT);
 
 // Base Station global variables
 bool base_station_is_reset;
@@ -289,6 +290,11 @@ bool last_button_state = true;
 
 void setup() 
 {
+  SPI1.setRX(TFT_MISO);
+  SPI1.setTX(TFT_MOSI);
+  SPI1.setSCK(TFT_SCK);
+//  SPI1.setCS(TFT_CS);
+
   // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
   clock_configure(
     clk_peri,
