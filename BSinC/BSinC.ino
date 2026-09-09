@@ -189,8 +189,8 @@ board.SDA (GPIO2)
 #include <RH_RF95.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_ST7796S_kbv.h>
-#include <FT6336U.h>
+#include "src\Adafruit_ST7796S_kbv_bps.h"
+#include "src\FT6336U_bps.h"
 #include <LittleFS.h>
 #include <string.h>
 #include <hardware/clocks.h> // Required for clock configuration functions
@@ -293,7 +293,6 @@ void setup()
   SPI1.setRX(TFT_MISO);
   SPI1.setTX(TFT_MOSI);
   SPI1.setSCK(TFT_SCK);
-//  SPI1.setCS(TFT_CS);
 
   // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
   clock_configure(
