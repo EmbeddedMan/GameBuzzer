@@ -24,23 +24,22 @@ FT6336U::~FT6336U() {
 
 void FT6336U::begin(void) {
     // Initialize I2C
-//#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266) || defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(TEENSYDUINO)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266) || defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(TEENSYDUINO) || defined(ARDUINO_ARCH_RP2040)
     if(sda != -1 && scl != -1) {
-//#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)        
-//        Wire.begin(sda, scl);
-//#elif defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(TEENSYDUINO) || defined(TEENSYDUINO) 
-        Wire1.setSCL(13); 
-        Wire1.setSDA(12);   
-        Serial.printf("Hey!\n");     
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_ESP8266)        
+        Wire.begin(sda, scl);
+#elif defined(ARDUINO_TEENSY41) || defined(ARDUINO_TEENSY40) || defined(TEENSYDUINO) || defined(TEENSYDUINO) || defined(ARDUINO_ARCH_RP2040)
+        Wire1.setSCL(scl);
+        Wire1.setSDA(sda);
         Wire1.begin(); 
-//#endif        
+#endif        
     }
     else {
         Wire1.begin();
     }
-//#else
-//    Wire.begin();
-//#endif
+#else
+    Wire.begin();
+#endif
     // Int Pin Configuration
     pinMode(int_n, INPUT);
     // Reset Pin Configuration
