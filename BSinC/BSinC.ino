@@ -204,8 +204,8 @@ int16_t xpos = 0;
 int16_t ypos = 0;
 
 /*            BASE STATION PIN MAP                */
-#define BOARD_TX        0   // Board defined UART TX (unused, breakout)
-#define BOARD_RX        1   // Board defined UART RX (unused, breakout)
+#define TOUCH_SDA       0   // Remapped I2C SDA (LCD touch screen, breakout)
+#define TOUCH_SCL       1   // Remapped I2C SCL (LCD touch screen, breakout)
 #define TFT_SCK         2   // Remapped LCD SPI0 CLK (breakout)
 #define TFT_MOSI        3   // Remapped LCD SPI0 MOSI (breakout)
 #define NEOPIXEL_PIN    4   // Board defined Neopixel data output
@@ -217,8 +217,8 @@ int16_t ypos = 0;
 #define TOUCH_N_INT     9   // LCD touch controller interrupt (breakout)
 #define BUTTON1_PIN     10  // Red game reset pushbutton (breakout)
 #define BEEPER_PIN      11  // Beeper control output (breakout)
-#define TOUCH_SDA       12  // Remapped I2C SDA (LCD touch screen)
-#define TOUCH_SCL       13  // Remapped I2C SCL (LCD touch screen)
+#define BOARD_12        12  // Unused (breakout)
+#define BOARD_LED       13  // Board defined red LED next to USB connector (breakout)
 #define BAORD_SCK       14  // Board defined SCK for SPI1- used by radio and LCD (breakout)
 #define BOARD_MOSI      15  // Board defined MOSI for SPI1 - used by radio and LCD (breakout)
 #define RFM95_CS        16  // Radio SPI1 Chip Select output
@@ -231,7 +231,7 @@ int16_t ypos = 0;
 #define RFM95_IO2       23  // Radio GPIO
 #define TFT_CS          24  // LCD SPI0 Chip Select (breakout)
 #define TFT_DC          25  // LCD Data/Command output (breakout)
-#define TFT_RST         -1  // Connected, but I don't know to what GPIO pin
+#define TFT_RST         -1  // Tied to VCC
 #define DBG0_PIN        26  // General Purpose Debug Output (breakout)
 #define DBG1_PIN        27  // General Purpose Debug Output (breakout)
 #define DBG2_PIN        28  // General Purpose Debug Output (breakout)
@@ -250,6 +250,11 @@ int16_t ypos = 0;
 #define COLOR_BLUE      pixel.Color(0, 0, 255)
 #define COLOR_YELLOW    pixel.Color(255, 255, 0)
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
+
+/* Commands between cores */
+#define CMD_CORE_INIT_DONE      0x10000000  // Sent to other core when setup() is done
+#define CMD_DRAW_BITMAP         0x20000000  // Core0->Core1 to start drawing of bitmap
+#define CMD_TOUCH_EVENT         0x40000000  // Core1->Core0 user touched screen
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -327,6 +332,10 @@ void setup()
   // Beeper output
   pinMode(BEEPER_PIN, OUTPUT);
   digitalWrite(BEEPER_PIN, LOW);
+  // Quick beeper test
+  //digitalWrite(BEEPER_PIN, HIGH);
+  //delay(50);
+  //digitalWrite(BEEPER_PIN, LOW);
 
   // Fire up the neopixel
   pixel.begin();
