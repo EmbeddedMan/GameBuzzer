@@ -252,9 +252,10 @@ int16_t ypos = 0;
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
 
 /* Commands between cores */
-#define CMD_CORE_INIT_DONE      0x10000000  // Sent to other core when setup() is done
-#define CMD_DRAW_BITMAP         0x20000000  // Core0->Core1 to start drawing of bitmap
-#define CMD_TOUCH_EVENT         0x40000000  // Core1->Core0 user touched screen
+#define CMD_COMMAND_MASK        (uint32_t)0xFF000000  // Only MSB contains command
+#define CMD_CORE_INIT_DONE      (uint32_t)0x01000000  // Sent to other core when setup() is done
+#define CMD_DRAW_BITMAP         (uint32_t)0x02000000  // Core0->Core1 to start drawing of bitmap
+#define CMD_TOUCH_EVENT         (uint32_t)0x03000000  // Core1->Core0 user touched screen
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -433,13 +434,9 @@ void setup()
   File file = root.openNextFile();
   while (file) {
     if (file.isDirectory()) {
-      Serial.print("  DIR:  ");
-      Serial.println(file.name());
+      Serial.printf("  DIR: %-30s\n", file.name());
     } else {
-      Serial.print("  FILE: ");
-      Serial.print(file.name());
-      Serial.print("\tSIZE: ");
-      Serial.println(file.size());
+      Serial.printf(" FILE: %-30s  %10u\n", file.name(), file.size());
     }
     file = root.openNextFile();
   }
@@ -500,6 +497,9 @@ void setup()
   //tft.println("Next Quiz");
   //tft.setCursor(150, 160);
   //tft.println("Question");
+
+  // Let Core1 know that we are done with primary initalization
+  rp2040.fifo.push_nb(CMD_CORE_INIT_DONE);
 }
 
 // Called whenever there is a falling edge on the touch controller's interrupt line
@@ -935,12 +935,45 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
 
 void setup1(void)
 {
+  uint32_t FIFO_command = 0;
 
+  // Wait for Core0 to get done with its setup before starting ours. While slower, this helps prevent
+  // problems with intializing things at the same time.
+  while (rp2040.fifo.pop_nb(&FIFO_command) == false)
+  {
+  }
 
+  FIFO_command = FIFO_command & CMD_COMMAND_MASK;
+  if (FIFO_command == CMD_CORE_INIT_DONE)
+  {
+    Serial.println("Core1: Got CMD_CORE_INIT_DONE from Core0. Exiting setup1().");
+  }
+  else
+  {
+    Serial.printf("Core1: setup1() got invalid CMD from Core0. 0x%08X Fault.", FIFO_command);
+    while(1);
+  }
 }
 
 void loop1(void)
 {
+  uint32_t FIFO_command = 0;
 
+  if (rp2040.fifo.pop_nb(&FIFO_command))
+  {
+    switch (FIFO_command & CMD_COMMAND_MASK)
+    {
+      case CMD_CORE_INIT_DONE:
+        Serial.println("Core1: loop1() got invalid CMD from Core0: CMD_CORE_INIT_DONE");
+        break;
 
+      case CMD_DRAW_BITMAP:
+        Serial.println("Core1: loop1() got CMD_DRAW_BITMAP command");
+        break;
+
+      default:
+        Serial.println("Core1: loop1() got invalid CMD from Core0: unknown");
+        break;
+    }
+  }
 }
