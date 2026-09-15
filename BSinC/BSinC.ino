@@ -254,9 +254,17 @@ int16_t ypos = 0;
 /* Commands between cores */
 #define CMD_COMMAND_MASK        (uint32_t)0xFC000000  // Command occupies top 6 bits
 #define CMD_COMMAND_SHIFT                         26  // Number of bits to shift a command to get it in the right place
+#define CMD_BITMAP_INDEX_MASK             0x03FC0000
+#define CMD_BITMAP_INDEX_SHIFT                    18
+#define CMD_BITMAP_X_MASK                 0x0003FE00
+#define CMD_BITMAP_X_SHIFT                         9
+#define CMD_BITMAP_Y_MASK                 0x000001FF
+
+#define CMD_COMMAND_NONE              (uint32_t)0x00  // Do not use this command, so that command 0x00 becomes reserved as an error
 #define CMD_CORE_INIT_DONE            (uint32_t)0x01  // Sent to other core when setup() is done
 #define CMD_DRAW_BITMAP               (uint32_t)0x02  // Core0->Core1 to start drawing of bitmap
 #define CMD_TOUCH_EVENT               (uint32_t)0x03  // Core1->Core0 user touched screen
+
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -297,7 +305,7 @@ bool last_button_state = true;
 
 
 // Global array to store filenames of each BMP file so we can refer to them by numerical index
-static const char filename_array[] = {
+static const char * filename_array[] = {
   "/BookClubSplash.bmp",
   "/BuzzerActivated.bmp",
   "/NextQuizQuestionResized.bmp",
@@ -306,7 +314,7 @@ static const char filename_array[] = {
   "/Emily.bmp",
   "/Grant.bmp",
   "/Jeff.bmp",
-  "/Jennny.bmp"
+  "/Jenny.bmp",
   "/Olga.bmp",
   "/Ryan.bmp",
 };
@@ -473,7 +481,7 @@ void setup()
   }
   
   // Read in and display the splash screen
-  draw_bmp("/BookClubSplash.bmp", 0, 0);
+  send_bmp_cmd(BMP_FILE_BOOK_CLUB_SPLASH, 0, 0);
 
   pinMode(TOUCH_N_INT, INPUT_PULLUP);
 
@@ -517,7 +525,7 @@ void setup()
   // When non-zero, causes us to ignore all received packets
   packet_rx_resume_time = 0;
 
-  draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
+  send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
   // Blank the LCD and display green background
   //tft.fillScreen(ST7796S_GREEN);
@@ -530,7 +538,7 @@ void setup()
   //tft.println("Question");
 
   // Let Core1 know that we are done with primary initalization
-  rp2040.fifo.push_nb(CMD_CORE_INIT_DONE);
+  rp2040.fifo.push_nb(CMD_CORE_INIT_DONE << CMD_COMMAND_SHIFT);
 }
 
 // Called whenever there is a falling edge on the touch controller's interrupt line
@@ -612,7 +620,7 @@ void loop()
       }
       else
       {
-        Serial.printf("Core0: FIFO full on send of NextQuizQUestionReseized\n");
+        Serial.printf("C0: FIFO full on send of NextQuizQUestionReseized\n");
       }
       //draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
 
@@ -804,11 +812,11 @@ void loop()
 
                   // Blank the LCD and display red background
                   tft.fillScreen(ST7796S_WHITE);
-                  draw_bmp("/BuzzerActivated.bmp", 0, 0);
-                  draw_bmp("/Ania.bmp", 10, 50);
-                  draw_bmp("/Brian.bmp", 10, 92);
-                  draw_bmp("/Emily.bmp", 10, 134);
-                  draw_bmp("/Grant.bmp", 10, 176);
+                  send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
+                  send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
+                  send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
+                  send_bmp_cmd(BMP_FILE_EMLIY, 10, 134);
+                  send_bmp_cmd(BMP_FILE_GRANT, 10, 176);
                   //tft.setCursor(0, 25);
                   //tft.setTextColor(ST7796S_WHITE);  
                   //tft.setTextSize(3);
@@ -895,15 +903,29 @@ void loop()
   }
 }
 
-// bitmap_index goes from 0 to 127
-// x goes from 0 to 479
-// y goes from 0 to 319
-void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_y)
+// FIFO_data = 0bCCCC CCBB BBBB BBXX XXXX XXXY YYYY YYYY
+// Command is top 6 bits of FIFO_data (0 to 31)
+// bitmap_index is next 8 bits of FIFO_data and goes from 0 to 255
+// x is next 9 bits and goes from 0 to 479
+// y is next 9 bits and goes from 0 to 319
+void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_t y)
 {
-  uint32_t command = CMD_DRAW_BITMAP | (bitmap_index << 17) | (x << 8) | y)
-  if (rp2040.fifo.push_nb(command) == false)
+  uint32_t FIFO_data = 0;
+
+  if (x > 479)
   {
-    Serial.printf("Core0: FIFO full on send of NextQuizQUestionReseized\n");
+    x = 479;
+  }
+  if (y > 319)
+  {
+    y = 319;
+  }
+
+  FIFO_data = (CMD_DRAW_BITMAP << CMD_COMMAND_SHIFT) | ((uint32_t)bitmap_index << CMD_BITMAP_INDEX_SHIFT) | ((uint32_t)x << CMD_BITMAP_X_SHIFT) | (uint32_t)y;
+
+  if (rp2040.fifo.push_nb(FIFO_data) == false)
+  {
+    Serial.printf("C0: FIFO full on send of NextQuizQUestionReseized\n");
   }
 }
 
@@ -915,59 +937,87 @@ void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_y)
 
 void setup1(void)
 {
-  uint32_t FIFO_command = 0;
+  uint8_t FIFO_command = 0;
+  uint32_t FIFO_full = 0;
 
-  // Wait for Core0 to get done with its setup before starting ours. While slower, this helps prevent
-  // problems with intializing things at the same time.
-  while (rp2040.fifo.pop_nb(&FIFO_command) == false)
+  while(1)
   {
-  }
+    // Wait for Core0 to get done with its setup before starting ours. While slower, this helps prevent
+    // problems with intializing things at the same time.
+    if (rp2040.fifo.pop_nb(&FIFO_full))
+    {
+      FIFO_command = ((FIFO_full & CMD_COMMAND_MASK) >> CMD_COMMAND_SHIFT);
 
-  FIFO_command = FIFO_command & CMD_COMMAND_MASK;
-  if (FIFO_command == CMD_CORE_INIT_DONE)
-  {
-    Serial.println("Core1: Got CMD_CORE_INIT_DONE from Core0. Exiting setup1().");
-  }
-  else
-  {
-    Serial.printf("Core1: setup1() got invalid CMD from Core0. 0x%08X Fault.", FIFO_command);
-    while(1);
+      switch (FIFO_command)
+      {
+        case CMD_CORE_INIT_DONE:
+          Serial.printf("C1: setup1() got CMD_CORE_INIT_DONE from C0: exiting setup1()\n");
+          return;
+          break;
+
+        case CMD_DRAW_BITMAP:
+        {
+        uint8_t bitmap_index = (FIFO_full & CMD_BITMAP_INDEX_MASK) >> CMD_BITMAP_INDEX_SHIFT;
+        uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
+        uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
+
+          Serial.printf("C1: setup1() got CMD_DRAW_BITMAP command, bmp=%u, x=%u, y=%u\n", bitmap_index, x, y);
+          if (bitmap_index > BMP_FILE_MAX_INDEX)
+          {
+            Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
+          }
+          else
+          {
+            draw_bmp(filename_array[bitmap_index], x, y);
+            Serial.printf("C1: Drew %s\n", filename_array[bitmap_index]);
+          }
+          break;
+        }
+
+        default:
+          Serial.printf("C1: setup1() got invalid CMD from C0: 0x%08X\n", FIFO_full);
+          break;
+      }
+    }
   }
 }
 
 void loop1(void)
 {
-  uint32_t FIFO_command = 0;
+  uint8_t FIFO_command = 0;
+  uint32_t FIFO_full = 0;
 
-  if (rp2040.fifo.pop_nb(&FIFO_command))
+  if (rp2040.fifo.pop_nb(&FIFO_full))
   {
-    switch (FIFO_command & CMD_COMMAND_MASK)
+    FIFO_command = ((FIFO_full & CMD_COMMAND_MASK) >> CMD_COMMAND_SHIFT);
+
+    switch (FIFO_command)
     {
       case CMD_CORE_INIT_DONE:
-        Serial.println("Core1: loop1() got invalid CMD from Core0: CMD_CORE_INIT_DONE");
+        Serial.printf("C1: loop1() got invalid CMD from C0: CMD_CORE_INIT_DONE\n");
         break;
 
       case CMD_DRAW_BITMAP:
       {
-        uint8_t bitmap_index = (FIFO_command & 0x00FE0000) >> 15;
-        uint16_t x = (FIFO_command & 0x0001FF00) >> 8;
-        uint16_t y = (FIFO_command & 0x000000FF);
+        uint8_t bitmap_index = (FIFO_full & CMD_BITMAP_INDEX_MASK) >> CMD_BITMAP_INDEX_SHIFT;
+        uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
+        uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
 
-        Serial.println("Core1: loop1() got CMD_DRAW_BITMAP command, bmp=%u, x=%u, y=%u", bitmap_index, x, y);
+        Serial.printf("C1: loop1() got CMD_DRAW_BITMAP command, bmp=%u, x=%u, y=%u\n", bitmap_index, x, y);
         if (bitmap_index > BMP_FILE_MAX_INDEX)
         {
-          Serial.printf("Core1: Unknown bitmap 0x%08X\n", bitmap_index);
+          Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
         }
         else
         {
           draw_bmp(filename_array[bitmap_index], x, y);
-          Serial.printf("Core1: Drew %s\n", filename_array[bitmap_index])
+          Serial.printf("C1: Drew %s\n", filename_array[bitmap_index]);
         }
         break;
       }
 
       default:
-        Serial.println("Core1: loop1() got invalid CMD from Core0: unknown");
+          Serial.printf("C1: loop1() got invalid CMD from C0: 0x%08X\n", FIFO_full);
         break;
     }
   }
