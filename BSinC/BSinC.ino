@@ -363,7 +363,7 @@ void setup()
   
   Serial.begin(115200);
   delay(3000);
-  Serial.println("Game Buzzer Base Station");
+  Serial.printf("C0: Game Buzzer Base Station\n");
 
   // LED Setup (for heartbeat)
   pinMode(LED_BUILTIN, OUTPUT);
@@ -391,23 +391,23 @@ void setup()
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
 
-  Serial.printf("RP2040 F_CPU = %u\n", rp2040.f_cpu());
+  Serial.printf("C0: RP2040 F_CPU = %u\n", rp2040.f_cpu());
 
   while (!rf95.init()) 
   {
-    Serial.println("LoRa radio init failed");
-    Serial.println("Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info");
+    Serial.printf("C0: LoRa radio init failed\n");
+    Serial.printf("C0: Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info\n");
     while (1);
   }
-  Serial.println("LoRa radio init OK!");
+  Serial.printf("C0: LoRa radio init OK!\n");
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
   if (!rf95.setFrequency(RF95_FREQ)) 
   {
-    Serial.println("setFrequency failed");
+    Serial.printf("C0: setFrequency failed\n");
     while (1);
   }
-  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+  Serial.printf("C0: Set Freq to: %u", RF95_FREQ);
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
 
@@ -442,7 +442,7 @@ void setup()
 
   // Init display
   tft.begin(62500000);
-  Serial.printf("Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
+  Serial.printf("C0: Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
 
   // And display splash screen
   tft.setRotation(1);
@@ -456,16 +456,16 @@ void setup()
 //  delay(1000);
 
   if (!LittleFS.begin()) {
-    Serial.println("LittleFS init failed");
+    Serial.printf("C0: LittleFS init failed\n");
     while(1);
   }
 
-  Serial.println("Listing LittleFS root directory:");
+  Serial.printf("C0: Listing LittleFS root directory:\n");
   
   // Open root directory
   File root = LittleFS.open("/", "r");
   if (!root || !root.isDirectory()) {
-    Serial.println("Failed to open root directory");
+    Serial.printf("C0: Failed to open root directory\n");
     return;
   }
 
@@ -473,9 +473,9 @@ void setup()
   File file = root.openNextFile();
   while (file) {
     if (file.isDirectory()) {
-      Serial.printf("  DIR: %-30s\n", file.name());
+      Serial.printf("C0:  DIR: %-30s\n", file.name());
     } else {
-      Serial.printf(" FILE: %-30s  %10u\n", file.name(), file.size());
+      Serial.printf("C0: FILE: %-30s  %7u\n", file.name(), file.size());
     }
     file = root.openNextFile();
   }
@@ -489,10 +489,8 @@ void setup()
   ft6336u.begin();
 
   pinMode(TOUCH_N_INT, INPUT_PULLUP);
-  Serial.print("FT6336U Firmware Version: ");
-  Serial.println(ft6336u.read_firmware_id());
-  Serial.print("FT6336U Device Mode: ");
-  Serial.println(ft6336u.read_device_mode());
+  Serial.printf("C0: FT6336U Firmware Version: %u\n", ft6336u.read_firmware_id());
+  Serial.printf("C0: FT6336U Device Mode: %u\n", ft6336u.read_device_mode());
 
   attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
 
@@ -500,7 +498,7 @@ void setup()
   delay(2000);
 
   // Wait to receive packets
-  Serial.println("Main Loop: starting time sync packets");
+  Serial.printf("C0: Main Loop: starting time sync packets\n");
   // Start off with our LED showing green
   pixel.setPixelColor(0, COLOR_GREEN);
   pixel.show();
@@ -557,18 +555,18 @@ void loop()
     user_touch_happened = false;
     if (ft6336u.read_td_status())
     {
-      //Serial.print("FT6336U Touch Event/ID 1: (");
-      //Serial.print(ft6336u.read_touch1_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_id()); Serial.println(")");
-      //Serial.print("FT6336U Touch Position 1: (");
-      Serial.printf("\nTouch at %3u,%3u", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
-      //Serial.print("FT6336U Touch Weight/MISC 1: (");
-      //Serial.print(ft6336u.read_touch1_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch1_misc()); Serial.println(")");
-      //Serial.print("FT6336U Touch Event/ID 2: (");
-      //Serial.print(ft6336u.read_touch2_event()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_id()); Serial.println(")");
-      //Serial.print("FT6336U Touch Position 2: (");
-      //Serial.print(ft6336u.read_touch2_x()); Serial.print(" , "); Serial.print(ft6336u.read_touch2_y()); Serial.println(")");
-      //Serial.print("FT6336U Touch Weight/MISC 2: (");
-      //Serial.print(ft6336u.read_touch2_weight()); Serial.print(" / "); Serial.print(ft6336u.read_touch2_misc()); Serial.println(")");
+      //Serial.printf("FT6336U Touch Event/ID 1: (");
+      //Serial.printf(ft6336u.read_touch1_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_id()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Position 1: (");
+      Serial.printf("C0: Touch at %3u,%3u\n", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
+      //Serial.printf("FT6336U Touch Weight/MISC 1: (");
+      //Serial.printf(ft6336u.read_touch1_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_misc()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Event/ID 2: (");
+      //Serial.printf(ft6336u.read_touch2_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_id()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Position 2: (");
+      //Serial.printf(ft6336u.read_touch2_x()); Serial.printf(" , "); Serial.printf(ft6336u.read_touch2_y()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Weight/MISC 2: (");
+      //Serial.printf(ft6336u.read_touch2_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_misc()); Serial.printf(")\n");
     }
   }
 
@@ -602,8 +600,7 @@ void loop()
 
       pixel.setPixelColor(0, COLOR_GREEN);
       pixel.show();
-      Serial.print(millis());
-      Serial.println(" System is now reset");
+      Serial.printf("C0: %7u System is now reset", millis());
 
       // Blank the LCD and display green background
       //tft.fillScreen(ST7796S_GREEN);
@@ -611,9 +608,9 @@ void loop()
       //tft.setCursor(140, 120);
       //tft.setTextColor(ST7796S_BLACK);
       //tft.setTextSize(4);
-      //tft.println("Next Quiz");
+      //tft.printf("Next Quiz\n");
       //tft.setCursor(150,  160);
-      //tft.println("Question");
+      //tft.printf("Question\n");
       if (rp2040.fifo.push_nb(CMD_DRAW_BITMAP | (BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED << 16)))
       {
 
@@ -704,18 +701,14 @@ void loop()
     ///  time_sink_skip = 10;
     ///}
     delay(2);
-    Serial.println();
+    Serial.printf("\n");
     if (any_btn_pushed)
     {
-      Serial.print(millis());
-      Serial.print(" Red   Sync sent: ");
-      Serial.print(sync_time_ms);
+      Serial.printf("C0: %7u Red   Sync sent: %7u", millis(), sync_time_ms);
     }
     else
     {
-      Serial.print(millis());
-      Serial.print(" Green Sync sent: ");
-      Serial.print(sync_time_ms);
+      Serial.printf("C0: %7u Green Sync sent: %7u", millis(), sync_time_ms);
     }
   }
 
@@ -756,9 +749,7 @@ void loop()
             {
               heartbeat_times[hc_src_addr - 1] = millis();
               hc_seen_reset[hc_src_addr - 1] = true;
-              Serial.print(" $ ");
-              Serial.print(hc_src_addr);
-              Serial.print(" : hb ");
+              Serial.printf(" $ %u : hb ", hc_src_addr);
             }
             else
             {
@@ -804,14 +795,12 @@ void loop()
                 {
                   rf95.setModeIdle();
 
-                  Serial.print(" $ ");
-                  Serial.print(hc_src_addr);
-                  Serial.print(" : bp ");
-                  Serial.print(hc_btn_push_time_ms);
+                  Serial.printf(" $ %u : bp %7u", hc_src_addr, hc_btn_push_time_ms);
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
-                  tft.fillScreen(ST7796S_WHITE);
+                  
+//TODO:                  tft.fillScreen(ST7796S_WHITE);
                   send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
                   send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
                   send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
@@ -832,22 +821,19 @@ void loop()
                   bool printed[8] = {false, false, false, false, false, false, false, false};
                   uint32_t smallest_time = 0xFFFFFFFF;
 
-                  Serial.println();
+                  Serial.printf("\n");
                   // Print out the times at start of sort
                   for (outer = 0; outer < 8; outer++)
                   {
-                    Serial.print(outer);
-                    Serial.print(":");
-                    Serial.print(button_push_times[outer]);
-                    Serial.println();
+                    Serial.printf("C0: %u:%u\n", outer, button_push_times[outer]);
                   }
 
-                  tft.setCursor(30, 90);
+///// TODO:!!! Convert to new BMP print
+//                  tft.setCursor(30, 90);
                   for (outer = 0; outer < 8; outer++)
                   {
                     smallest_time = 0;
-                    Serial.print("> Outer = ");
-                    Serial.print(outer);
+                    Serial.printf("> Outer = %u", outer);
                     // Find the outerith smallest push time that hasn't been printed yet
                     for (inner = 0; inner < 8; inner++)
                     {
@@ -860,17 +846,14 @@ void loop()
                         }
                       }
                     }
-                    Serial.print(" smallest = ");
-                    Serial.print(smallest_time);
-                    Serial.print(" at index ");
-                    Serial.println(smallest_index);
+                    Serial.printf("C0: Smallest = %u at index %u\n", smallest_time, smallest_index);
                     // Smallest time should now be shortest unpushed time, at index smallest_index
                     if (smallest_time != 0)
                     {
                       // Print out smallest_index
                       printed[smallest_index] = true;
-                      tft.print(smallest_index + 1);
-                      tft.print("  ");
+///// TODO:!!! Convert to new BMP print
+//                      tft.printf("%u ", smallest_index + 1);
                     }
                   }
                 }
@@ -879,23 +862,17 @@ void loop()
           }
           else
           {
-            Serial.print(millis());
-            Serial.print(" Got a packet with a bad destingation address of ");
-            Serial.println(hc_dst_addr);
+            Serial.printf("C0: %7u Got a packet with a bad destingation address of %u\n", millis(), hc_dst_addr);
           }
         }
         else
         {
-          Serial.print(millis());
-          Serial.print(" Got a packet with a bad source address of ");
-          Serial.println(hc_src_addr);
+          Serial.printf("C0: %7u Got a packet with a bad source address of %u\n", millis(), hc_src_addr);
         }
       }
       else
       {
-        Serial.print(millis());
-        Serial.print(" Got a packet with a bad length of ");
-        Serial.println(packet_len);
+        Serial.printf("C0: %7u Got a packet with a bad length of %u\n", millis(), packet_len);
       }
       digitalWrite(DBG3_PIN, LOW);
     }
@@ -1044,7 +1021,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Open image file from LittleFS (ensure leading slash)
   File imgFile = LittleFS.open(filename, "r");
   if (!imgFile) {
-    Serial.printf("Failed to open image file %s\n", filename);
+    Serial.printf("C1:Failed to open image file %s\n", filename);
     retval = -1;
     return(retval);
   }
@@ -1058,7 +1035,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Confirm that we have a header of the right size. So we check the BitmapOffset field of the 14 byte header
   if ((max_line[5] + (max_line[6] << 16)) != 138)
   {
-    Serial.printf("Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
+    Serial.printf("C1:Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
     retval = -1;
     return(retval);
   }
@@ -1071,7 +1048,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Check that our width and height are not larger than our screen
   if ((width > SCREEN_WIDTH) || (height > SCREEN_HEIGHT))
   {
-    Serial.printf("Image too large to fit on screen.\n");
+    Serial.printf("C1:Image too large to fit on screen.\n");
     retval = -1;
     return(retval);
   }
