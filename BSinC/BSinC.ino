@@ -184,6 +184,9 @@ board.SDA (GPIO2)
 #
 */
 
+#include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <RH_RF95.h>
@@ -192,7 +195,6 @@ board.SDA (GPIO2)
 #include "src\Adafruit_ST7796S_kbv_bps.h"
 #include "src\FT6336U_bps.h"
 #include <LittleFS.h>
-#include <string.h>
 #include <hardware/clocks.h> // Required for clock configuration functions
 
 #define FileSys LittleFS
@@ -302,6 +304,8 @@ uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 bool user_touch_happened;
 bool last_button_state = true;
+char pkt_debug_printf_buf[250] = {0};
+uint8_t pkt_debug_printf_index = 0;
 
 
 // Global array to store filenames of each BMP file so we can refer to them by numerical index
@@ -655,10 +659,13 @@ void loop()
   // Instead, we define a window of 3ms. If more than 140 ms has elapsed since the last sync packet BUT NOT MORE
   // THAN 143, then we send out a new sync packet since that's our "window" to send. If more time than that has
   // elapsed, then we just add 140 ms to the next_sync_time and try again at that point.
-  if (millis() >= (next_sync_time + 3)) {
+  if (millis() >= (next_sync_time + 3)) 
+  {
     next_sync_time += TIME_SYNC_PACKET_PERIOD_MS;
+    dbg_print_log();
   }
-  else if (millis() >= next_sync_time) {
+  else if (millis() >= next_sync_time) 
+  {
     next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
@@ -700,15 +707,18 @@ void loop()
     ///{
     ///  time_sink_skip = 10;
     ///}
-    delay(2);
-    Serial.printf("\n");
+    delay(2);   /// TODO: Why is this needed? Explain
+
+    // Print out the accumulated debug printf butter
+    dbg_print_log();
+
     if (any_btn_pushed)
     {
-      Serial.printf("C0: %7u Red   Sync sent: %7u", millis(), sync_time_ms);
+      dbg_log("C0: %7u Red   Sync sent: %7u", millis(), sync_time_ms);
     }
     else
     {
-      Serial.printf("C0: %7u Green Sync sent: %7u", millis(), sync_time_ms);
+      dbg_log("C0: %7u Green Sync sent: %7u", millis(), sync_time_ms);
     }
   }
 
@@ -749,7 +759,7 @@ void loop()
             {
               heartbeat_times[hc_src_addr - 1] = millis();
               hc_seen_reset[hc_src_addr - 1] = true;
-              Serial.printf(" $ %u : hb ", hc_src_addr);
+              dbg_log(" $ %u : hb ", hc_src_addr);
             }
             else
             {
@@ -795,7 +805,7 @@ void loop()
                 {
                   rf95.setModeIdle();
 
-                  Serial.printf(" $ %u : bp %7u", hc_src_addr, hc_btn_push_time_ms);
+                  dbg_log(" $ %u : bp %7u", hc_src_addr, hc_btn_push_time_ms);
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
                   // Blank the LCD and display red background
@@ -879,6 +889,25 @@ void loop()
     digitalWrite(DBG0_PIN, LOW);
   }
 }
+
+void dbg_log(const char *format, ...)
+{
+  va_list args;
+  va_start(args, format);
+  pkt_debug_printf_index += vsprintf(&(pkt_debug_printf_buf[pkt_debug_printf_index]), format, args);
+  va_end(args);
+}
+
+void dbg_print_log(void)
+{
+  pkt_debug_printf_buf[pkt_debug_printf_index] = 0x00;
+  Serial.printf("%s\n", pkt_debug_printf_buf);
+  // Then clear the buffer as we are going to start building up the next one here
+  memset((void *)pkt_debug_printf_buf, 0x00, sizeof(pkt_debug_printf_buf));
+  pkt_debug_printf_index = 0;
+}
+
+
 
 // FIFO_data = 0bCCCC CCBB BBBB BBXX XXXX XXXY YYYY YYYY
 // Command is top 6 bits of FIFO_data (0 to 31)
