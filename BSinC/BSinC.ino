@@ -246,7 +246,7 @@ int16_t ypos = 0;
 
 #define NUMPIXELS       1
 
-// Crappy dumb hack to get named colors like the Pyhton code had
+// Crappy dumb hack to get named colors like the Pyhton code had (Neopixel colors)
 #define COLOR_RED       pixel.Color(255, 0, 0)
 #define COLOR_GREEN     pixel.Color(0, 255, 0)
 #define COLOR_BLUE      pixel.Color(0, 0, 255)
@@ -254,19 +254,28 @@ int16_t ypos = 0;
 #define COLOR_PURPLE    pixel.Color(255, 0, 255)
 
 /* Commands between cores */
+//  General command defines for all commands
 #define CMD_COMMAND_MASK        (uint32_t)0xFC000000  // Command occupies top 6 bits
 #define CMD_COMMAND_SHIFT                         26  // Number of bits to shift a command to get it in the right place
+
+// Defines for CMD_DRAW_BITMAP
 #define CMD_BITMAP_INDEX_MASK             0x03FC0000
 #define CMD_BITMAP_INDEX_SHIFT                    18
 #define CMD_BITMAP_X_MASK                 0x0003FE00
 #define CMD_BITMAP_X_SHIFT                         9
 #define CMD_BITMAP_Y_MASK                 0x000001FF
 
+// Defines for CMD_TOUCH_EVENT
+
+// Defines for CMD_FILL_SCREEN
+#define CMD_FILL_COLOR_MASK               0x0000FFFF
+
+// Defines for actual commands (upper 6 bits of 32-bit FIFO data)
 #define CMD_COMMAND_NONE              (uint32_t)0x00  // Do not use this command, so that command 0x00 becomes reserved as an error
 #define CMD_CORE_INIT_DONE            (uint32_t)0x01  // Sent to other core when setup() is done
-#define CMD_DRAW_BITMAP               (uint32_t)0x02  // Core0->Core1 to start drawing of bitmap
-#define CMD_TOUCH_EVENT               (uint32_t)0x03  // Core1->Core0 user touched screen
-
+#define CMD_DRAW_BITMAP               (uint32_t)0x02  // C0->C1 to start drawing of bitmap
+#define CMD_TOUCH_EVENT               (uint32_t)0x03  // C1->C0 user touched screen
+#define CMD_FILL_SCREEN               (uint32_t)0x04  // C0->C1 to fill screen with solid color
 
 // Singleton instance of the radio driver
 RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -367,7 +376,7 @@ void setup()
   
   Serial.begin(115200);
   delay(3000);
-  Serial.printf("C0: Game Buzzer Base Station\n");
+  Serial.printf("\n\n\nC0: Game Buzzer Base Station\n");
 
   // LED Setup (for heartbeat)
   pinMode(LED_BUILTIN, OUTPUT);
@@ -452,12 +461,8 @@ void setup()
   tft.setRotation(1);
   tft.invertDisplay(true);
 
-//  tft.fillScreen(ST7796S_WHITE);
-//  tft.setCursor(140, 140);
-//  tft.setTextColor(ST7796S_BLACK);  
-//  tft.setTextSize(1);
-//  tft.println("Book Club");
-//  delay(1000);
+  // Start off with a white screen fill
+  rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
 
   if (!LittleFS.begin()) {
     Serial.printf("C0: LittleFS init failed\n");
@@ -529,16 +534,6 @@ void setup()
 
   send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
-  // Blank the LCD and display green background
-  //tft.fillScreen(ST7796S_GREEN);
-
-  //tft.setCursor(140, 120);
-  //tft.setTextColor(ST7796S_BLACK);  
-  //tft.setTextSize(4);
-  //tft.println("Next Quiz");
-  //tft.setCursor(150, 160);
-  //tft.println("Question");
-
   // Let Core1 know that we are done with primary initalization
   rp2040.fifo.push_nb(CMD_CORE_INIT_DONE << CMD_COMMAND_SHIFT);
 }
@@ -606,24 +601,8 @@ void loop()
       pixel.show();
       Serial.printf("C0: %7u System is now reset", millis());
 
-      // Blank the LCD and display green background
-      //tft.fillScreen(ST7796S_GREEN);
-
-      //tft.setCursor(140, 120);
-      //tft.setTextColor(ST7796S_BLACK);
-      //tft.setTextSize(4);
-      //tft.printf("Next Quiz\n");
-      //tft.setCursor(150,  160);
-      //tft.printf("Question\n");
-      if (rp2040.fifo.push_nb(CMD_DRAW_BITMAP | (BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED << 16)))
-      {
-
-      }
-      else
-      {
-        Serial.printf("C0: FIFO full on send of NextQuizQUestionReseized\n");
-      }
-      //draw_bmp("/NextQuizQuestionResized.bmp", 0, 0);
+      // Draw next quiz question screen
+      send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
       any_btn_pushed = false;
 
@@ -808,19 +787,13 @@ void loop()
                   dbg_log(" $ %u : bp %7u", hc_src_addr, hc_btn_push_time_ms);
                   button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
 
-                  // Blank the LCD and display red background
-                  
-//TODO:                  tft.fillScreen(ST7796S_WHITE);
+                  // Clear screen to white and draw names, in order of button press                  
+                  rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
                   send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
                   send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
                   send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
                   send_bmp_cmd(BMP_FILE_EMLIY, 10, 134);
                   send_bmp_cmd(BMP_FILE_GRANT, 10, 176);
-                  //tft.setCursor(0, 25);
-                  //tft.setTextColor(ST7796S_WHITE);  
-                  //tft.setTextSize(3);
-                  //tft.println("   Player button pushes");
-                  //tft.println("        in order:");
 
                   // Sort hand controllers in order that they pushed their buttons
                   // button_push_times[] is zero for a hand controller if they haven't pushed their button
@@ -838,8 +811,6 @@ void loop()
                     Serial.printf("C0: %u:%u\n", outer, button_push_times[outer]);
                   }
 
-///// TODO:!!! Convert to new BMP print
-//                  tft.setCursor(30, 90);
                   for (outer = 0; outer < 8; outer++)
                   {
                     smallest_time = 0;
@@ -863,7 +834,7 @@ void loop()
                       // Print out smallest_index
                       printed[smallest_index] = true;
 ///// TODO:!!! Convert to new BMP print
-//                      tft.printf("%u ", smallest_index + 1);
+                      // Print out smallest index on screen using bitmap numbers
                     }
                   }
                 }
@@ -963,11 +934,10 @@ void setup1(void)
 
         case CMD_DRAW_BITMAP:
         {
-        uint8_t bitmap_index = (FIFO_full & CMD_BITMAP_INDEX_MASK) >> CMD_BITMAP_INDEX_SHIFT;
-        uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
-        uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
+          uint8_t bitmap_index = (FIFO_full & CMD_BITMAP_INDEX_MASK) >> CMD_BITMAP_INDEX_SHIFT;
+          uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
+          uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
 
-          Serial.printf("C1: setup1() got CMD_DRAW_BITMAP command, bmp=%u, x=%u, y=%u\n", bitmap_index, x, y);
           if (bitmap_index > BMP_FILE_MAX_INDEX)
           {
             Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
@@ -975,8 +945,16 @@ void setup1(void)
           else
           {
             draw_bmp(filename_array[bitmap_index], x, y);
-            Serial.printf("C1: Drew %s\n", filename_array[bitmap_index]);
+            Serial.printf("C1: setup1() got CMD_DRAW_BITMAP command, Drew %s at bmp=%u, x=%u, y=%u\n", filename_array[bitmap_index], bitmap_index, x, y);
           }
+          break;
+        }
+
+        case CMD_FILL_SCREEN:
+        {
+          uint16_t color = (FIFO_full & CMD_FILL_COLOR_MASK);
+          tft.fillScreen(color);
+          Serial.printf("C1: setup1() got CMD_FILL_SCREEN command\n");
           break;
         }
 
@@ -1009,7 +987,6 @@ void loop1(void)
         uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
         uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
 
-        Serial.printf("C1: loop1() got CMD_DRAW_BITMAP command, bmp=%u, x=%u, y=%u\n", bitmap_index, x, y);
         if (bitmap_index > BMP_FILE_MAX_INDEX)
         {
           Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
@@ -1017,8 +994,16 @@ void loop1(void)
         else
         {
           draw_bmp(filename_array[bitmap_index], x, y);
-          Serial.printf("C1: Drew %s\n", filename_array[bitmap_index]);
+          Serial.printf("C1: loop1() got CMD_DRAW_BITMAP command, Drew %s at bmp=%u, x=%u, y=%u\n", filename_array[bitmap_index], bitmap_index, x, y);
         }
+        break;
+      }
+
+      case CMD_FILL_SCREEN:
+      {
+        uint16_t color = (FIFO_full & CMD_FILL_COLOR_MASK);
+        tft.fillScreen(color);
+        Serial.printf("C1: loop1() got CMD_FILL_SCREEN command\n");
         break;
       }
 
@@ -1050,21 +1035,21 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Open image file from LittleFS (ensure leading slash)
   File imgFile = LittleFS.open(filename, "r");
   if (!imgFile) {
-    Serial.printf("C1:Failed to open image file %s\n", filename);
+    Serial.printf("C1: Failed to open image file %s\n", filename);
     retval = -1;
     return(retval);
   }
 
   // Read in the image from LittleFS. We don't have enough RAM to store a full framebuffer,
   // so we will read in each iamge one horizontal line at a time, draw that, then read the next, etc.
-  // First we have to read past the BMP header bytes (168 bytes worth). This block contains the initial
+  // First we have to read past the BMP header bytes (138 bytes worth). This block contains the initial
   // file header (BITMAPFILEHEADER) - 14 bytes, extended information header (BITMAPV5HEADER) - 124 bytes
   imgFile.readBytes((char*)max_line, 138);
 
   // Confirm that we have a header of the right size. So we check the BitmapOffset field of the 14 byte header
   if ((max_line[5] + (max_line[6] << 16)) != 138)
   {
-    Serial.printf("C1:Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
+    Serial.printf("C1: Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
     retval = -1;
     return(retval);
   }
@@ -1077,13 +1062,13 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Check that our width and height are not larger than our screen
   if ((width > SCREEN_WIDTH) || (height > SCREEN_HEIGHT))
   {
-    Serial.printf("C1:Image too large to fit on screen.\n");
+    Serial.printf("C1: Image too large to fit on screen.\n");
     retval = -1;
     return(retval);
   }
 
   // This tells the display we are going to feed it pixels for this rectangular area
-  //tft.setAddrWindow(x_loc, y_loc, width, height);
+  tft.setAddrWindow(x_loc, y_loc, width, height);
 
   // Read out the image pixels, one horizontal line at a time, and place at the right point on the screen
   for (int h = 0; h < height; h++) 
