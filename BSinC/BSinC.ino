@@ -348,23 +348,7 @@ static const char * filename_array[] = {
 
 void setup() 
 {
-  SPI1.setRX(TFT_MISO);
-  SPI1.setTX(TFT_MOSI);
-  SPI1.setSCK(TFT_SCK);
-
-  // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
-  clock_configure(
-    clk_peri,
-    0, // No auxiliary mux changes
-    CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, // Source from system clock
-    rp2040.f_cpu(), // Match the current CPU frequency (250000000 Hz)
-    rp2040.f_cpu()  // Match the integer division rate
-  );
-
-  // Set up debug outputs
-  pinMode(TOUCH_N_RST, OUTPUT);
-  pinMode(TOUCH_N_INT, INPUT_PULLUP);
-  
+  // GPIO debug is more of a Core0 thing, so init them here  
   pinMode(DBG0_PIN, OUTPUT);
   digitalWrite(DBG0_PIN, LOW);
   pinMode(DBG1_PIN, OUTPUT);
@@ -453,15 +437,7 @@ void setup()
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
 
-  // Init display
-  tft.begin(62500000);
-  Serial.printf("C0: Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
-
-  // And display splash screen
-  tft.setRotation(1);
-  tft.invertDisplay(true);
-
-  // Start off with a white screen fill
+  // Start off with a white screen fill. Core1 has intialized the TFT long before this.
   rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
 
   if (!LittleFS.begin()) {
@@ -491,17 +467,6 @@ void setup()
   
   // Read in and display the splash screen
   send_bmp_cmd(BMP_FILE_BOOK_CLUB_SPLASH, 0, 0);
-
-  pinMode(TOUCH_N_INT, INPUT_PULLUP);
-
-  // Init the touch controller
-  ft6336u.begin();
-
-  pinMode(TOUCH_N_INT, INPUT_PULLUP);
-  Serial.printf("C0: FT6336U Firmware Version: %u\n", ft6336u.read_firmware_id());
-  Serial.printf("C0: FT6336U Device Mode: %u\n", ft6336u.read_device_mode());
-
-  attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
 
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
@@ -538,37 +503,12 @@ void setup()
   rp2040.fifo.push_nb(CMD_CORE_INIT_DONE << CMD_COMMAND_SHIFT);
 }
 
-// Called whenever there is a falling edge on the touch controller's interrupt line
-void touch_ISR(void)
-{
-  user_touch_happened = true;
-}
   
 void loop() 
 {
   uint32_t i;
 
   digitalWrite(DBG2_PIN, HIGH);
-
-  if(user_touch_happened) {
-    user_touch_happened = false;
-    if (ft6336u.read_td_status())
-    {
-      //Serial.printf("FT6336U Touch Event/ID 1: (");
-      //Serial.printf(ft6336u.read_touch1_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_id()); Serial.printf(")\n");
-      //Serial.printf("FT6336U Touch Position 1: (");
-      Serial.printf("C0: Touch at %3u,%3u\n", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
-      //Serial.printf("FT6336U Touch Weight/MISC 1: (");
-      //Serial.printf(ft6336u.read_touch1_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_misc()); Serial.printf(")\n");
-      //Serial.printf("FT6336U Touch Event/ID 2: (");
-      //Serial.printf(ft6336u.read_touch2_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_id()); Serial.printf(")\n");
-      //Serial.printf("FT6336U Touch Position 2: (");
-      //Serial.printf(ft6336u.read_touch2_x()); Serial.printf(" , "); Serial.printf(ft6336u.read_touch2_y()); Serial.printf(")\n");
-      //Serial.printf("FT6336U Touch Weight/MISC 2: (");
-      //Serial.printf(ft6336u.read_touch2_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_misc()); Serial.printf(")\n");
-    }
-  }
-
 
   if (beeper_off_time)
   {
@@ -912,10 +852,52 @@ void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_t y)
 /*********************************************************************************************************/
 /*********************************************************************************************************/
 
+// Called whenever there is a falling edge on the touch controller's interrupt line
+void touch_ISR(void)
+{
+  user_touch_happened = true;
+}
+
 void setup1(void)
 {
   uint8_t FIFO_command = 0;
   uint32_t FIFO_full = 0;
+
+  // Initalize all the TFT things
+  SPI1.setRX(TFT_MISO);
+  SPI1.setTX(TFT_MOSI);
+  SPI1.setSCK(TFT_SCK);
+
+  // 1. FORCE the peripheral clock to run at the full 250 MHz CPU speed
+  clock_configure(
+    clk_peri,
+    0, // No auxiliary mux changes
+    CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, // Source from system clock
+    rp2040.f_cpu(), // Match the current CPU frequency (250000000 Hz)
+    rp2040.f_cpu()  // Match the integer division rate
+  );
+
+  pinMode(TOUCH_N_RST, OUTPUT);
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+
+  // Init display
+  tft.begin(62500000);
+  Serial.printf("C1: Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
+
+  // And display splash screen
+  tft.setRotation(1);
+  tft.invertDisplay(true);
+
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+
+  // Init the touch controller
+  ft6336u.begin();
+
+  pinMode(TOUCH_N_INT, INPUT_PULLUP);
+  Serial.printf("C1: FT6336U Firmware Version: %u\n", ft6336u.read_firmware_id());
+  Serial.printf("C1: FT6336U Device Mode: %u\n", ft6336u.read_device_mode());
+
+  attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
 
   while(1)
   {
@@ -970,6 +952,25 @@ void loop1(void)
 {
   uint8_t FIFO_command = 0;
   uint32_t FIFO_full = 0;
+
+  if(user_touch_happened) {
+    user_touch_happened = false;
+    if (ft6336u.read_td_status())
+    {
+      //Serial.printf("FT6336U Touch Event/ID 1: (");
+      //Serial.printf(ft6336u.read_touch1_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_id()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Position 1: (");
+      Serial.printf("C1: Touch at %3u,%3u\n", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
+      //Serial.printf("FT6336U Touch Weight/MISC 1: (");
+      //Serial.printf(ft6336u.read_touch1_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_misc()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Event/ID 2: (");
+      //Serial.printf(ft6336u.read_touch2_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_id()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Position 2: (");
+      //Serial.printf(ft6336u.read_touch2_x()); Serial.printf(" , "); Serial.printf(ft6336u.read_touch2_y()); Serial.printf(")\n");
+      //Serial.printf("FT6336U Touch Weight/MISC 2: (");
+      //Serial.printf(ft6336u.read_touch2_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch2_misc()); Serial.printf(")\n");
+    }
+  }
 
   if (rp2040.fifo.pop_nb(&FIFO_full))
   {
