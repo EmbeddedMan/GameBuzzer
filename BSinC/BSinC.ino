@@ -72,7 +72,7 @@ The pinout for the RFM95 radio (and Feather) is as follows:
 | * A3                       RFM95                             D13 * |
 | * D24           * GND                   DIO2 *               D12 * |
 | * D25           * MISO                  DIO1 *               D11 * |
-| * SCK           * MOSI                  DIO0 *               D10 * |
+| * SCK           * MOSI            (INT) DIO0 *               D10 * |
 | * MOSI          * SCK                   3.3V *                D9 * |
 | * MISO          * NSS                   DIO4 *                D6 * |
 | * RX            * RESET                 DIO3 *                D5 * |
@@ -358,6 +358,13 @@ void setup()
   pinMode(DBG3_PIN, OUTPUT);
   digitalWrite(DBG3_PIN, LOW);
   
+  // Start off with a white screen fill. Core1 has intialized the TFT long before this.
+  //rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
+  
+  // Read in and display the splash screen. Core1 waits until LittleFS and TFT are initalized before
+  // reading this message from the FIFO.
+  send_bmp_cmd(BMP_FILE_BOOK_CLUB_SPLASH, 0, 0);
+
   Serial.begin(115200);
   delay(3000);
   Serial.printf("\n\n\nC0: Game Buzzer Base Station\n");
@@ -437,37 +444,6 @@ void setup()
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
 
-  // Start off with a white screen fill. Core1 has intialized the TFT long before this.
-  rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
-
-  if (!LittleFS.begin()) {
-    Serial.printf("C0: LittleFS init failed\n");
-    while(1);
-  }
-
-  Serial.printf("C0: Listing LittleFS root directory:\n");
-  
-  // Open root directory
-  File root = LittleFS.open("/", "r");
-  if (!root || !root.isDirectory()) {
-    Serial.printf("C0: Failed to open root directory\n");
-    return;
-  }
-
-  // Iterate through all files and directories
-  File file = root.openNextFile();
-  while (file) {
-    if (file.isDirectory()) {
-      Serial.printf("C0:  DIR: %-30s\n", file.name());
-    } else {
-      Serial.printf("C0: FILE: %-30s  %7u\n", file.name(), file.size());
-    }
-    file = root.openNextFile();
-  }
-  
-  // Read in and display the splash screen
-  send_bmp_cmd(BMP_FILE_BOOK_CLUB_SPLASH, 0, 0);
-
   // Keep the Book Club splash screen up there for a bit
   delay(2000);
 
@@ -500,7 +476,8 @@ void setup()
   send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
   // Let Core1 know that we are done with primary initalization
-  rp2040.fifo.push_nb(CMD_CORE_INIT_DONE << CMD_COMMAND_SHIFT);
+  // rp2040.fifo.push_nb(CMD_CORE_INIT_DONE << CMD_COMMAND_SHIFT);
+  // No longer needed
 }
 
   
@@ -626,7 +603,7 @@ void loop()
     ///{
     ///  time_sink_skip = 10;
     ///}
-    delay(2);   /// TODO: Why is this needed? Explain
+    //delay(2);   /// TODO: Why is this needed? Explain
 
     // Print out the accumulated debug printf butter
     dbg_print_log();
@@ -795,7 +772,6 @@ void loop()
       {
         Serial.printf("C0: %7u Got a packet with a bad length of %u\n", millis(), packet_len);
       }
-      digitalWrite(DBG3_PIN, LOW);
     }
     digitalWrite(DBG0_PIN, LOW);
   }
@@ -863,6 +839,32 @@ void setup1(void)
   uint8_t FIFO_command = 0;
   uint32_t FIFO_full = 0;
 
+  // Get LittleFS up and running so we can read out screen bitmaps
+  if (!LittleFS.begin()) {
+    Serial.printf("C0: LittleFS init failed\n");
+    while(1);
+  }
+
+  Serial.printf("C0: Listing LittleFS root directory:\n");
+  
+  // Open root directory
+  File root = LittleFS.open("/", "r");
+  if (!root || !root.isDirectory()) {
+    Serial.printf("C0: Failed to open root directory\n");
+    return;
+  }
+
+  // Iterate through all files and directories
+  File file = root.openNextFile();
+  while (file) {
+    if (file.isDirectory()) {
+      Serial.printf("C0:  DIR: %-30s\n", file.name());
+    } else {
+      Serial.printf("C0: FILE: %-30s  %7u\n", file.name(), file.size());
+    }
+    file = root.openNextFile();
+  }
+
   // Initalize all the TFT things
   SPI1.setRX(TFT_MISO);
   SPI1.setTX(TFT_MOSI);
@@ -884,7 +886,6 @@ void setup1(void)
   tft.begin(62500000);
   Serial.printf("C1: Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
 
-  // And display splash screen
   tft.setRotation(1);
   tft.invertDisplay(true);
 
@@ -898,54 +899,6 @@ void setup1(void)
   Serial.printf("C1: FT6336U Device Mode: %u\n", ft6336u.read_device_mode());
 
   attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
-
-  while(1)
-  {
-    // Wait for Core0 to get done with its setup before starting ours. While slower, this helps prevent
-    // problems with intializing things at the same time.
-    if (rp2040.fifo.pop_nb(&FIFO_full))
-    {
-      FIFO_command = ((FIFO_full & CMD_COMMAND_MASK) >> CMD_COMMAND_SHIFT);
-
-      switch (FIFO_command)
-      {
-        case CMD_CORE_INIT_DONE:
-          Serial.printf("C1: setup1() got CMD_CORE_INIT_DONE from C0: exiting setup1()\n");
-          return;
-          break;
-
-        case CMD_DRAW_BITMAP:
-        {
-          uint8_t bitmap_index = (FIFO_full & CMD_BITMAP_INDEX_MASK) >> CMD_BITMAP_INDEX_SHIFT;
-          uint16_t x = (FIFO_full & CMD_BITMAP_X_MASK) >> CMD_BITMAP_X_SHIFT;
-          uint16_t y = (FIFO_full & CMD_BITMAP_Y_MASK);
-
-          if (bitmap_index > BMP_FILE_MAX_INDEX)
-          {
-            Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
-          }
-          else
-          {
-            draw_bmp(filename_array[bitmap_index], x, y);
-            Serial.printf("C1: setup1() got CMD_DRAW_BITMAP command, Drew %s at bmp=%u, x=%u, y=%u\n", filename_array[bitmap_index], bitmap_index, x, y);
-          }
-          break;
-        }
-
-        case CMD_FILL_SCREEN:
-        {
-          uint16_t color = (FIFO_full & CMD_FILL_COLOR_MASK);
-          tft.fillScreen(color);
-          Serial.printf("C1: setup1() got CMD_FILL_SCREEN command\n");
-          break;
-        }
-
-        default:
-          Serial.printf("C1: setup1() got invalid CMD from C0: 0x%08X\n", FIFO_full);
-          break;
-      }
-    }
-  }
 }
 
 void loop1(void)
@@ -1078,9 +1031,9 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
     imgFile.readBytes((char*)max_line, width * 2);
     //digitalWrite(DBG0_PIN, LOW);
 
-    digitalWrite(DBG1_PIN, HIGH);
+    //digitalWrite(DBG1_PIN, HIGH);
     tft.drawRGBBitmap(x_loc, y_loc + h, max_line, width, 1);
-    digitalWrite(DBG1_PIN, LOW);
+    //digitalWrite(DBG1_PIN, LOW);
   }
   imgFile.close();
   return(retval);
