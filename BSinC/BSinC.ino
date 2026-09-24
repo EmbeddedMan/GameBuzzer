@@ -498,7 +498,7 @@ void loop()
   }
 
   // Look for button press to reset our state
-  if (digitalRead(BUTTON1_PIN) == false)
+  if ((digitalRead(BUTTON1_PIN) == false) && (base_station_is_reset == false))
   {
     // Only take action on the falling edge of the button signal
     if (last_button_state == false)
@@ -690,6 +690,8 @@ void loop()
 
               if (!packet_rx_resume_time)
               {
+                base_station_is_reset = false;
+                
                 // We got a button push packet from a hand controller
                 // Is this the first button press of any of the hand controllers for this question?
                 if (any_btn_pushed == false)
