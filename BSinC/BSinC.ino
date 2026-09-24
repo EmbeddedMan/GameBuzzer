@@ -189,7 +189,7 @@ board.SDA (GPIO2)
 #include <stdarg.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <RH_RF95.h>
+#include "src\RadioHead\RH_RF95.h"
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_GFX.h>
 #include "src\Adafruit_ST7796S_kbv_bps.h"
@@ -498,7 +498,7 @@ void loop()
   }
 
   // Look for button press to reset our state
-  if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
+  if (digitalRead(BUTTON1_PIN) == false)
   {
     // Only take action on the falling edge of the button signal
     if (last_button_state == false)
@@ -547,8 +547,6 @@ void loop()
     last_button_state = false;
   }
 
-  //delay(1);
-
   // Has enough time gone by? Time to send a sync packet?
   // The trick here is that we don't want to send a sync packet if a hand controller is already transmitting.
   // It would be cool to be able to check that in real time from the radio, but I don't know how to do that yet.
@@ -587,8 +585,10 @@ void loop()
     if (rf95.available())
     {
       digitalWrite(DBG0_PIN, HIGH);
+      digitalWrite(DBG3_PIN, HIGH);
       rf95.recv(packet, &packet_len);
       digitalWrite(DBG0_PIN, LOW);
+      digitalWrite(DBG3_PIN, LOW);
     }
     /// // JUST FOR TESTING: Skip sending every 10th time sync packet
     ///static int8_t time_sink_skip = 10;
@@ -622,8 +622,11 @@ void loop()
 
   // In a non-blocking way, look to see if we've received a packet
   packet_len = 10;
+  digitalWrite(DBG3_PIN, HIGH);
   if (rf95.available())
   {
+    digitalWrite(DBG3_PIN, LOW);
+
     digitalWrite(DBG0_PIN, HIGH);
     if (rf95.recv(packet, &packet_len))
     {
@@ -775,6 +778,7 @@ void loop()
     }
     digitalWrite(DBG0_PIN, LOW);
   }
+  digitalWrite(DBG3_PIN, LOW);
 }
 
 void dbg_log(const char *format, ...)
