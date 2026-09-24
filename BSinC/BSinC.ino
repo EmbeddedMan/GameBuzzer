@@ -290,7 +290,6 @@ Adafruit_ST7796S_kbv tft = Adafruit_ST7796S_kbv(&SPI1, TFT_CS, TFT_DC, TFT_RST);
 FT6336U ft6336u(TOUCH_SDA, TOUCH_SCL, TOUCH_N_RST, TOUCH_N_INT);
 
 // Base Station global variables
-bool base_station_is_reset;
 uint8_t packet[10];
 uint8_t sync_pkt[10];
 uint32_t reset_start_time;
@@ -298,7 +297,7 @@ uint32_t button_push_times[8];
 uint32_t heartbeat_times[8];
 uint8_t hc_btn_order[8];
 uint8_t hc_seen_reset[8];       // When BS button pushed, remember HC with buttons pushed. Only clear those once they send back unpushed packets.
-bool any_btn_pushed;
+bool any_btn_pushed;            // Overall state of system. True once any button push has been recieved, false after BS reset
 uint32_t beeper_off_time;
 uint32_t next_sync_time;
 uint32_t hc_btn_push_time;
@@ -312,7 +311,6 @@ uint8_t packet_len;
 uint8_t hc_dst_addr;
 uint8_t hc_src_addr;
 bool user_touch_happened;
-bool last_button_state = true;
 char pkt_debug_printf_buf[250] = {0};
 uint8_t pkt_debug_printf_index = 0;
 
@@ -429,9 +427,6 @@ void setup()
   // Set up the big red button (game reset)
   pinMode(BUTTON1_PIN, INPUT_PULLUP);
 
-  // Keep track of what 'mode' we are in
-  base_station_is_reset = true;
-
   // Stores the time at which we reset and started waiting for button press packets
   // And we start each boot being in reset mode
   reset_start_time = millis();
@@ -498,53 +493,43 @@ void loop()
   }
 
   // Look for button press to reset our state
-  if ((digitalRead(BUTTON1_PIN) == false) && (base_station_is_reset == false))
+  if ((digitalRead(BUTTON1_PIN) == false) && (any_btn_pushed == true))
   {
-    // Only take action on the falling edge of the button signal
-    if (last_button_state == false)
-    {
-      // We have a button press!
-      // Record the local time
-      btn_press_time = millis();
+    // We have a button press!
+    // Record the local time
+    btn_press_time = millis();
 
-      rf95.setModeIdle();
+    rf95.setModeIdle();
 
-      base_station_is_reset = true;
-      memset(button_push_times, 0x00, sizeof(button_push_times));
-      memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
-      memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
+    memset(button_push_times, 0x00, sizeof(button_push_times));
+    memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
+    memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
 
-      pixel.setPixelColor(0, COLOR_GREEN);
-      pixel.show();
-      Serial.printf("C0: %7u System is now reset", millis());
+    pixel.setPixelColor(0, COLOR_GREEN);
+    pixel.show();
+    Serial.printf("C0: %7u System is now reset", millis());
 
-      // Draw next quiz question screen
-      send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
+    // Draw next quiz question screen
+    send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
-      any_btn_pushed = false;
+    any_btn_pushed = false;
 
-      // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
-      // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
-      // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
-      for (i = 0; i < 8; i++) {
-        if (button_push_times[i] > 0) {
-          hc_seen_reset[i] = false;
-        } else {
-          hc_seen_reset[i] = true;
-        }
+    // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
+    // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
+    // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
+    for (i = 0; i < 8; i++) {
+      if (button_push_times[i] > 0) {
+        hc_seen_reset[i] = false;
+      } else {
+        hc_seen_reset[i] = true;
       }
-
-      // Set blanking time to ignore any hand controller packets for 1.5s
-      /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
-      packet_rx_resume_time = millis() + 5000;
-      // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
-      // next_sync_time = millis() + 1110;
     }
-    last_button_state = true;
-  }
-  else
-  {
-    last_button_state = false;
+
+    // Set blanking time to ignore any hand controller packets for 1.5s
+    /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
+    packet_rx_resume_time = millis() + 5000;
+    // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
+    // next_sync_time = millis() + 1110;
   }
 
   // Has enough time gone by? Time to send a sync packet?
@@ -690,8 +675,6 @@ void loop()
 
               if (!packet_rx_resume_time)
               {
-                base_station_is_reset = false;
-                
                 // We got a button push packet from a hand controller
                 // Is this the first button press of any of the hand controllers for this question?
                 if (any_btn_pushed == false)

@@ -61,7 +61,7 @@
 */
 
 #include <SPI.h>
-#include "RH_RF95.h"
+#include "src\RadioHead\RH_RF95.h"
 #include <Adafruit_NeoPixel.h>
 #include "LittleFS.h"
 
@@ -264,7 +264,7 @@ void setup()
 void loop() 
 {
   // Look for button press
-  if (digitalRead(BUTTON1_PIN) == false || digitalRead(BUTTON2_PIN) == false)
+  if (digitalRead(BUTTON1_PIN) == false)
   {
     // Only register the very first button press - after that, wait for a reset from base station
     if (btn_press_time_global == 0)
@@ -382,6 +382,8 @@ void loop()
             last_pkt_red = false;
             btn_press_time_global = 0;
           }
+          digitalWrite(VIBE_MOTOR_PIN, LOW);
+          motor_end_time = 0;
           motor_fire = false;
         }
       }
