@@ -313,6 +313,7 @@ uint8_t hc_src_addr;
 bool user_touch_happened;
 char pkt_debug_printf_buf[250] = {0};
 uint8_t pkt_debug_printf_index = 0;
+uint8_t cur_hc_slot = 0;        // Advances as we get packets in 
 
 
 // Global array to store filenames of each BMP file so we can refer to them by numerical index
@@ -346,6 +347,10 @@ static const char * filename_array[] = {
 
 void setup() 
 {
+  uint32_t serial_timeout = millis() + 3000;
+
+  Serial.begin(115200);
+
   // GPIO debug is more of a Core0 thing, so init them here  
   pinMode(DBG0_PIN, OUTPUT);
   digitalWrite(DBG0_PIN, LOW);
@@ -363,9 +368,13 @@ void setup()
   // reading this message from the FIFO.
   send_bmp_cmd(BMP_FILE_BOOK_CLUB_SPLASH, 0, 0);
 
-  Serial.begin(115200);
-  delay(3000);
-  Serial.printf("\n\n\nC0: Game Buzzer Base Station\n");
+  // This is primarily to wait for a PC to connect over USB serial. Kick out of the loop after 3s or 
+  // when PC connects.
+  while (serial_timeout > millis() && !Serial)
+  {
+    delay(1);
+  }
+  Serial.printf("\n\n\nC0: %6u Game Buzzer Base Station\n", millis());
 
   // LED Setup (for heartbeat)
   pinMode(LED_BUILTIN, OUTPUT);
@@ -393,23 +402,23 @@ void setup()
   digitalWrite(RFM95_RST, HIGH);
   delay(10);
 
-  Serial.printf("C0: RP2040 F_CPU = %u\n", rp2040.f_cpu());
+  Serial.printf("C0: %6u RP2040 F_CPU = %u\n", millis(), rp2040.f_cpu());
 
   while (!rf95.init()) 
   {
-    Serial.printf("C0: LoRa radio init failed\n");
-    Serial.printf("C0: Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info\n");
+    Serial.printf("C0: %6u LoRa radio init failed\n", millis());
+    Serial.printf("C0: %6u Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info\n", millis());
     while (1);
   }
-  Serial.printf("C0: LoRa radio init OK!\n");
+  Serial.printf("C0: %6u LoRa radio init OK!\n", millis());
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
   if (!rf95.setFrequency(RF95_FREQ)) 
   {
-    Serial.printf("C0: setFrequency failed\n");
+    Serial.printf("C0: %6u setFrequency failed\n", millis());
     while (1);
   }
-  Serial.printf("C0: Set Freq to: %u", RF95_FREQ);
+  Serial.printf("C0: %6u Set Freq to: %5.1f\n", millis(), RF95_FREQ);
 
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
 
@@ -440,10 +449,10 @@ void setup()
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
 
   // Keep the Book Club splash screen up there for a bit
-  delay(2000);
+  //delay(2000);
 
   // Wait to receive packets
-  Serial.printf("C0: Main Loop: starting time sync packets\n");
+  Serial.printf("C0: %6u Main Loop: starting time sync packets\n", millis());
   // Start off with our LED showing green
   pixel.setPixelColor(0, COLOR_GREEN);
   pixel.show();
@@ -507,7 +516,7 @@ void loop()
 
     pixel.setPixelColor(0, COLOR_GREEN);
     pixel.show();
-    Serial.printf("C0: %7u System is now reset", millis());
+    Serial.printf("C0: %6u System has been reset\n", millis());
 
     // Draw next quiz question screen
     send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
@@ -527,7 +536,8 @@ void loop()
 
     // Set blanking time to ignore any hand controller packets for 1.5s
     /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
-    packet_rx_resume_time = millis() + 5000;
+    // packet_rx_resume_time = millis() + 5000;
+    packet_rx_resume_time = millis();
     // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
     // next_sync_time = millis() + 1110;
   }
@@ -542,9 +552,11 @@ void loop()
   {
     next_sync_time += TIME_SYNC_PACKET_PERIOD_MS;
     dbg_print_log();
+    cur_hc_slot = 1;
   }
   else if (millis() >= next_sync_time) 
   {
+    cur_hc_slot = 1;
     next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
     rf95.setHeaderFrom(10);
     rf95.setHeaderTo(255); // Broadcast to all hand controllers
@@ -595,11 +607,13 @@ void loop()
 
     if (any_btn_pushed)
     {
-      dbg_log("C0: %7u Red   Sync sent: %7u", millis(), sync_time_ms);
+      // Red text for red sync packet
+      dbg_log("C0: %6u \033[31;107mSync\033[0m ", sync_time_ms);
     }
     else
     {
-      dbg_log("C0: %7u Green Sync sent: %7u", millis(), sync_time_ms);
+      // Green text for green sync packet
+      dbg_log("C0: %6u \033[32;107mSync\033[0m ", sync_time_ms);
     }
   }
 
@@ -639,126 +653,146 @@ void loop()
         {
           if (hc_dst_addr == 10)  // and it must come to us, base station, addr 10
           {
-            if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
+            // Since we know what we expect the next HC address to be, we can check it here. Going backwards
+            // in address is a fault.
+            if (hc_src_addr < cur_hc_slot)
             {
-              heartbeat_times[hc_src_addr - 1] = millis();
-              hc_seen_reset[hc_src_addr - 1] = true;
-              dbg_log(" $ %u : hb ", hc_src_addr);
+              Serial.printf("C0: %6u Incorrect address slot order. Looking for %d but saw %d\n", millis(), cur_hc_slot, hc_src_addr);
+              // Put a bright yellow background here for error
+              dbg_log(" \033[103m%u\033[0m", hc_src_addr);
             }
             else
             {
-              // Have we timed out of any ongoing blanking period?
-              if (packet_rx_resume_time < millis())
+              // Advance our current slot to the next address, adding space in our printout on the way
+              while (cur_hc_slot < hc_src_addr)
               {
-                packet_rx_resume_time = 0;
+                dbg_log(" %u", cur_hc_slot);
+                cur_hc_slot++;
+              }              
+
+              if (hc_btn_push_time_ms == 0) // If time = 0, this is a heartbeat packet, no button push
+              {
+                heartbeat_times[hc_src_addr - 1] = millis();
+                hc_seen_reset[hc_src_addr - 1] = true;
+                // Use a green number
+                dbg_log(" \033[32;107m%u\033[0m", hc_src_addr);
               }
-              // If we are in a blanking period after a system reset (BS button push), then check to see
-              // if all of the HC that had button pushes have checked in with 'no button push' packets. If not,
-              // then ignore this packet.
-              if (packet_rx_resume_time)
+              else
               {
-                bool any_waiting_for_reset = false;
-                for (i=0; i < 8; i++)
+                // Have we timed out of any ongoing blanking period?
+                if (packet_rx_resume_time < millis())
                 {
-                  if (hc_seen_reset[i] == false)
-                  {
-                    any_waiting_for_reset = true;
-                  }
-                }
-                if (any_waiting_for_reset == false)
-                {
-                  // All HCs with button pushes have checked in with plain heartbeat packets. So we don't need to
-                  // be in a blanking period anymore
                   packet_rx_resume_time = 0;
                 }
-              }
-
-              if (!packet_rx_resume_time)
-              {
-                // We got a button push packet from a hand controller
-                // Is this the first button press of any of the hand controllers for this question?
-                if (any_btn_pushed == false)
+                // If we are in a blanking period after a system reset (BS button push), then check to see
+                // if all of the HC that had button pushes have checked in with 'no button push' packets. If not,
+                // then ignore this packet.
+                if (packet_rx_resume_time)
                 {
-                  // Yes, then start the bepper up
-                  //digitalWrite(BEEPER_PIN, HIGH);
-                  any_btn_pushed = true;
-                  beeper_off_time = millis() + 2000;
-                }
-                // Only do stuff if this is the very first button press packet from this hand controller for this question
-                if (button_push_times[hc_src_addr - 1] == 0)
-                {
-                  rf95.setModeIdle();
-
-                  dbg_log(" $ %u : bp %7u", hc_src_addr, hc_btn_push_time_ms);
-                  button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
-
-                  // Clear screen to white and draw names, in order of button press                  
-                  rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
-                  send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
-                  send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
-                  send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
-                  send_bmp_cmd(BMP_FILE_EMLIY, 10, 134);
-                  send_bmp_cmd(BMP_FILE_GRANT, 10, 176);
-
-                  // Sort hand controllers in order that they pushed their buttons
-                  // button_push_times[] is zero for a hand controller if they haven't pushed their button
-                  // or a global millisecond since base station boot time if they have.
-                  // Walk through all 8 times[], find the smallest one. Print out its index.
-                  // Find the next smllest one, print it out. Until there are no more times left.
-                  uint8_t outer, inner, smallest_index = 0;
-                  bool printed[8] = {false, false, false, false, false, false, false, false};
-                  uint32_t smallest_time = 0xFFFFFFFF;
-
-                  Serial.printf("\n");
-                  // Print out the times at start of sort
-                  for (outer = 0; outer < 8; outer++)
+                  bool any_waiting_for_reset = false;
+                  for (i=0; i < 8; i++)
                   {
-                    Serial.printf("C0: %u:%u\n", outer, button_push_times[outer]);
-                  }
-
-                  for (outer = 0; outer < 8; outer++)
-                  {
-                    smallest_time = 0;
-                    Serial.printf("> Outer = %u", outer);
-                    // Find the outerith smallest push time that hasn't been printed yet
-                    for (inner = 0; inner < 8; inner++)
+                    if (hc_seen_reset[i] == false)
                     {
-                      if ((button_push_times[inner] != 0) && (printed[inner] != true))
+                      any_waiting_for_reset = true;
+                    }
+                  }
+                  if (any_waiting_for_reset == false)
+                  {
+                    // All HCs with button pushes have checked in with plain heartbeat packets. So we don't need to
+                    // be in a blanking period anymore
+                    packet_rx_resume_time = 0;
+                  }
+                }
+
+                if (!packet_rx_resume_time)
+                {
+                  // We got a button push packet from a hand controller
+                  // Is this the first button press of any of the hand controllers for this question?
+                  if (any_btn_pushed == false)
+                  {
+                    // Yes, then start the bepper up
+                    //digitalWrite(BEEPER_PIN, HIGH);
+                    any_btn_pushed = true;
+                    beeper_off_time = millis() + 2000;
+                  }
+                  // Only do stuff if this is the very first button press packet from this hand controller for this question
+                  if (button_push_times[hc_src_addr - 1] == 0)
+                  {
+                    rf95.setModeIdle();
+                    // Red text for address
+                    dbg_log(" \033[31;107m%u\033[0m %6u", hc_src_addr, hc_btn_push_time_ms);
+                    button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
+
+                    // Clear screen to white and draw names, in order of button press                  
+                    rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
+                    send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
+                    send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
+                    send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
+                    send_bmp_cmd(BMP_FILE_EMLIY, 10, 134);
+                    send_bmp_cmd(BMP_FILE_GRANT, 10, 176);
+
+                    // Sort hand controllers in order that they pushed their buttons
+                    // button_push_times[] is zero for a hand controller if they haven't pushed their button
+                    // or a global millisecond since base station boot time if they have.
+                    // Walk through all 8 times[], find the smallest one. Print out its index.
+                    // Find the next smllest one, print it out. Until there are no more times left.
+                    uint8_t outer, inner, smallest_index = 0;
+                    bool printed[8] = {false, false, false, false, false, false, false, false};
+                    uint32_t smallest_time = 0xFFFFFFFF;
+
+  //                  Serial.printf("\n");
+                    // Print out the times at start of sort
+                    for (outer = 0; outer < 8; outer++)
+                    {
+  //                    Serial.printf("C0: %6u %u:%u\n", millis(), outer, button_push_times[outer]);
+                    }
+
+                    for (outer = 0; outer < 8; outer++)
+                    {
+                      smallest_time = 0;
+  //                    Serial.printf("> Outer = %u", outer);
+                      // Find the outerith smallest push time that hasn't been printed yet
+                      for (inner = 0; inner < 8; inner++)
                       {
-                        if (button_push_times[inner] > smallest_time)
+                        if ((button_push_times[inner] != 0) && (printed[inner] != true))
                         {
-                          smallest_time = button_push_times[inner];
-                          smallest_index = inner;
+                          if (button_push_times[inner] > smallest_time)
+                          {
+                            smallest_time = button_push_times[inner];
+                            smallest_index = inner;
+                          }
                         }
                       }
-                    }
-                    Serial.printf("C0: Smallest = %u at index %u\n", smallest_time, smallest_index);
-                    // Smallest time should now be shortest unpushed time, at index smallest_index
-                    if (smallest_time != 0)
-                    {
-                      // Print out smallest_index
-                      printed[smallest_index] = true;
-///// TODO:!!! Convert to new BMP print
-                      // Print out smallest index on screen using bitmap numbers
+  //                    Serial.printf("C0: %6u Smallest = %u at index %u\n", millis(), smallest_time, smallest_index);
+                      // Smallest time should now be shortest unpushed time, at index smallest_index
+                      if (smallest_time != 0)
+                      {
+                        // Print out smallest_index
+  //                      printed[smallest_index] = true;
+  ///// TODO:!!! Convert to new BMP print
+                        // Print out smallest index on screen using bitmap numbers
+                      }
                     }
                   }
                 }
               }
+              cur_hc_slot = hc_src_addr + 1;
             }
           }
           else
           {
-            Serial.printf("C0: %7u Got a packet with a bad destingation address of %u\n", millis(), hc_dst_addr);
+            Serial.printf("C0: %6u Got a packet with a bad destingation address of %u\n", millis(), hc_dst_addr);
           }
         }
         else
         {
-          Serial.printf("C0: %7u Got a packet with a bad source address of %u\n", millis(), hc_src_addr);
+          Serial.printf("C0: %6u Got a packet with a bad source address of %u\n", millis(), hc_src_addr);
         }
       }
       else
       {
-        Serial.printf("C0: %7u Got a packet with a bad length of %u\n", millis(), packet_len);
+        Serial.printf("C0: %6u Got a packet with a bad length of %u\n", millis(), packet_len);
       }
     }
     digitalWrite(DBG0_PIN, LOW);
@@ -807,7 +841,7 @@ void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_t y)
 
   if (rp2040.fifo.push_nb(FIFO_data) == false)
   {
-    Serial.printf("C0: FIFO full on send of NextQuizQUestionReseized\n");
+    Serial.printf("C0: %6u FIFO full on send of NextQuizQUestionReseized\n", millis());
   }
 }
 
@@ -828,18 +862,23 @@ void setup1(void)
   uint8_t FIFO_command = 0;
   uint32_t FIFO_full = 0;
 
+  // I think this should let the other core finish serial (USB) init before we start printing
+  delay(250);
+
+  Serial.printf("C0: %6u Core1 setup1() start\n", millis());
+
   // Get LittleFS up and running so we can read out screen bitmaps
   if (!LittleFS.begin()) {
-    Serial.printf("C0: LittleFS init failed\n");
+    Serial.printf("C0: %6u LittleFS init failed\n", millis());
     while(1);
   }
 
-  Serial.printf("C0: Listing LittleFS root directory:\n");
+  Serial.printf("C0: %6u Listing LittleFS root directory:\n", millis());
   
   // Open root directory
   File root = LittleFS.open("/", "r");
   if (!root || !root.isDirectory()) {
-    Serial.printf("C0: Failed to open root directory\n");
+    Serial.printf("C0: %6u Failed to open root directory\n", millis());
     return;
   }
 
@@ -847,9 +886,9 @@ void setup1(void)
   File file = root.openNextFile();
   while (file) {
     if (file.isDirectory()) {
-      Serial.printf("C0:  DIR: %-30s\n", file.name());
+      Serial.printf("C0: %6u  DIR: %-30s\n", millis(), file.name());
     } else {
-      Serial.printf("C0: FILE: %-30s  %7u\n", file.name(), file.size());
+      Serial.printf("C0: %6u FILE: %-30s  %7u\n", millis(), file.name(), file.size());
     }
     file = root.openNextFile();
   }
@@ -873,7 +912,7 @@ void setup1(void)
 
   // Init display
   tft.begin(62500000);
-  Serial.printf("C1: Actual SPI bus speed = %u\n", spi_get_baudrate(spi1));
+  Serial.printf("C1: %6u Actual SPI bus speed = %u\n", millis(), spi_get_baudrate(spi1));
 
   tft.setRotation(1);
   tft.invertDisplay(true);
@@ -884,8 +923,8 @@ void setup1(void)
   ft6336u.begin();
 
   pinMode(TOUCH_N_INT, INPUT_PULLUP);
-  Serial.printf("C1: FT6336U Firmware Version: %u\n", ft6336u.read_firmware_id());
-  Serial.printf("C1: FT6336U Device Mode: %u\n", ft6336u.read_device_mode());
+  Serial.printf("C1: %6u FT6336U Firmware Version: %u\n", millis(), ft6336u.read_firmware_id());
+  Serial.printf("C1: %6u FT6336U Device Mode: %u\n", millis(), ft6336u.read_device_mode());
 
   attachInterrupt(digitalPinToInterrupt(TOUCH_N_INT), touch_ISR, FALLING);
 }
@@ -902,7 +941,7 @@ void loop1(void)
       //Serial.printf("FT6336U Touch Event/ID 1: (");
       //Serial.printf(ft6336u.read_touch1_event()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_id()); Serial.printf(")\n");
       //Serial.printf("FT6336U Touch Position 1: (");
-      Serial.printf("C1: Touch at %3u,%3u\n", ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
+      Serial.printf("C1: %6u Touch at %3u,%3u\n", millis(), ft6336u.read_touch1_x(), ft6336u.read_touch1_y());
       //Serial.printf("FT6336U Touch Weight/MISC 1: (");
       //Serial.printf(ft6336u.read_touch1_weight()); Serial.printf(" / "); Serial.printf(ft6336u.read_touch1_misc()); Serial.printf(")\n");
       //Serial.printf("FT6336U Touch Event/ID 2: (");
@@ -921,7 +960,7 @@ void loop1(void)
     switch (FIFO_command)
     {
       case CMD_CORE_INIT_DONE:
-        Serial.printf("C1: loop1() got invalid CMD from C0: CMD_CORE_INIT_DONE\n");
+        Serial.printf("C1: %6u Got invalid CMD from C0: CMD_CORE_INIT_DONE\n", millis());
         break;
 
       case CMD_DRAW_BITMAP:
@@ -932,12 +971,12 @@ void loop1(void)
 
         if (bitmap_index > BMP_FILE_MAX_INDEX)
         {
-          Serial.printf("C1: Unknown bitmap 0x%08X\n", bitmap_index);
+          Serial.printf("C1: %6u Unknown bitmap 0x%08X\n", millis(), bitmap_index);
         }
         else
         {
           draw_bmp(filename_array[bitmap_index], x, y);
-          Serial.printf("C1: loop1() got CMD_DRAW_BITMAP command, Drew %s at bmp=%u, x=%u, y=%u\n", filename_array[bitmap_index], bitmap_index, x, y);
+          Serial.printf("C1: %6u Got CMD_DRAW_BITMAP command, Drew %s at bmp=%u, x=%u, y=%u\n", millis(), filename_array[bitmap_index], bitmap_index, x, y);
         }
         break;
       }
@@ -946,12 +985,12 @@ void loop1(void)
       {
         uint16_t color = (FIFO_full & CMD_FILL_COLOR_MASK);
         tft.fillScreen(color);
-        Serial.printf("C1: loop1() got CMD_FILL_SCREEN command\n");
+        Serial.printf("C1: %6u got CMD_FILL_SCREEN command\n", millis());
         break;
       }
 
       default:
-          Serial.printf("C1: loop1() got invalid CMD from C0: 0x%08X\n", FIFO_full);
+          Serial.printf("C1: %6u Got invalid CMD from C0: 0x%08X\n", millis(), FIFO_full);
         break;
     }
   }
@@ -978,7 +1017,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Open image file from LittleFS (ensure leading slash)
   File imgFile = LittleFS.open(filename, "r");
   if (!imgFile) {
-    Serial.printf("C1: Failed to open image file %s\n", filename);
+    Serial.printf("C1: %6u Failed to open image file %s\n", millis(), filename);
     retval = -1;
     return(retval);
   }
@@ -992,7 +1031,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Confirm that we have a header of the right size. So we check the BitmapOffset field of the 14 byte header
   if ((max_line[5] + (max_line[6] << 16)) != 138)
   {
-    Serial.printf("C1: Got incorrect header size of %u, %u\n", max_line[5], max_line[6]);
+    Serial.printf("C1: %6u Got incorrect header size of %u, %u\n", millis(), max_line[5], max_line[6]);
     retval = -1;
     return(retval);
   }
@@ -1005,7 +1044,7 @@ int32_t draw_bmp(const char * filename, uint16_t x_loc, uint16_t y_loc)
   // Check that our width and height are not larger than our screen
   if ((width > SCREEN_WIDTH) || (height > SCREEN_HEIGHT))
   {
-    Serial.printf("C1: Image too large to fit on screen.\n");
+    Serial.printf("C1: %6u Image too large to fit on screen.\n", millis());
     retval = -1;
     return(retval);
   }
