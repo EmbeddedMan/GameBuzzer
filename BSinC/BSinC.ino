@@ -293,7 +293,7 @@ FT6336U ft6336u(TOUCH_SDA, TOUCH_SCL, TOUCH_N_RST, TOUCH_N_INT);
 uint8_t packet[10];
 uint8_t sync_pkt[10];
 uint32_t reset_start_time;
-uint32_t button_push_times[8];
+uint32_t button_push[2][8];     // Times ([0][x]) and HC addresses ([1][x]) are added starting at index 0.
 uint32_t heartbeat_times[8];
 uint8_t hc_btn_order[8];
 uint8_t hc_seen_reset[8];       // When BS button pushed, remember HC with buttons pushed. Only clear those once they send back unpushed packets.
@@ -313,7 +313,8 @@ uint8_t hc_src_addr;
 bool user_touch_happened;
 char pkt_debug_printf_buf[250] = {0};
 uint8_t pkt_debug_printf_index = 0;
-uint8_t cur_hc_slot = 0;        // Advances as we get packets in 
+uint8_t cur_hc_slot = 0;        // Advances as we get packets in
+uint8_t hc_to_name_map[8] = {3, 4, 5, 6, 7, 8, 9, 10};  // Records which bitmap represents the name of the person using each hand controller
 
 
 // Global array to store filenames of each BMP file so we can refer to them by numerical index
@@ -329,6 +330,16 @@ static const char * filename_array[] = {
   "/Jenny.bmp",
   "/Olga.bmp",
   "/Ryan.bmp",
+  "/0.bmp",
+  "/1.bmp",
+  "/2.bmp",
+  "/3.bmp",
+  "/4.bmp",
+  "/5.bmp",
+  "/6.bmp",
+  "/7.bmp",
+  "/8.bmp",
+  "/9.bmp",
 };
 
 // And defines for each bitmap file index into the above array
@@ -443,7 +454,7 @@ void setup()
   // Stores the absolute time of reception of the first button push packet from
   // each hand controller. 0.0 means the base station has not received a button
   // push packet since the last reset.
-  memset(button_push_times, 0x00, sizeof(button_push_times));
+  memset(button_push, 0x00, sizeof(button_push));
   memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
   memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
   memset(sync_pkt, 0x00, sizeof(sync_pkt));
@@ -510,7 +521,7 @@ void loop()
 
     rf95.setModeIdle();
 
-    memset(button_push_times, 0x00, sizeof(button_push_times));
+    memset(button_push, 0x00, sizeof(button_push));
     memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
     memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
 
@@ -527,10 +538,12 @@ void loop()
     // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
     // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
     for (i = 0; i < 8; i++) {
-      if (button_push_times[i] > 0) {
-        hc_seen_reset[i] = false;
-      } else {
-        hc_seen_reset[i] = true;
+      if (button_push[0][i] != 0)   // Check the time of each button_push index 
+      {
+        hc_seen_reset[button_push[1][i]] = false;
+      } else 
+      {
+        hc_seen_reset[button_push[1][i]] = true;
       }
     }
 
@@ -715,65 +728,45 @@ void loop()
                     //digitalWrite(BEEPER_PIN, HIGH);
                     any_btn_pushed = true;
                     beeper_off_time = millis() + 2000;
+
+                    // Only clear screen and draw buzzer activated on first button press from any handle
+                    rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
+                    send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
                   }
+
                   // Only do stuff if this is the very first button press packet from this hand controller for this question
-                  if (button_push_times[hc_src_addr - 1] == 0)
+                  for (i = 0; i < 8; i++)
+                  {
+                    if (button_push[1][i] == (hc_src_addr - 1))
+                      break;
+                  }
+
+//Serial.printf("%u push, found alread at button_push index %u\n", hc_src_addr - 1, i);
+
+                  if (i == 8)
                   {
                     rf95.setModeIdle();
                     // Red text for address
                     dbg_log(" \033[31;107m%u\033[0m %6u", hc_src_addr, hc_btn_push_time_ms);
-                    button_push_times[hc_src_addr - 1] = hc_btn_push_time_ms;
-
-                    // Clear screen to white and draw names, in order of button press                  
-                    rp2040.fifo.push_nb((CMD_FILL_SCREEN << CMD_COMMAND_SHIFT) | ST7796S_WHITE);
-                    send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
-                    send_bmp_cmd(BMP_FILE_ANIA, 10, 50);
-                    send_bmp_cmd(BMP_FILE_BRIAN, 10, 92);
-                    send_bmp_cmd(BMP_FILE_EMLIY, 10, 134);
-                    send_bmp_cmd(BMP_FILE_GRANT, 10, 176);
-
-                    // Sort hand controllers in order that they pushed their buttons
-                    // button_push_times[] is zero for a hand controller if they haven't pushed their button
-                    // or a global millisecond since base station boot time if they have.
-                    // Walk through all 8 times[], find the smallest one. Print out its index.
-                    // Find the next smllest one, print it out. Until there are no more times left.
-                    uint8_t outer, inner, smallest_index = 0;
-                    bool printed[8] = {false, false, false, false, false, false, false, false};
-                    uint32_t smallest_time = 0xFFFFFFFF;
-
-  //                  Serial.printf("\n");
-                    // Print out the times at start of sort
-                    for (outer = 0; outer < 8; outer++)
+                    // Find next unused index in the button_push array
+                    for (i = 0; i < 8; i++)
                     {
-  //                    Serial.printf("C0: %6u %u:%u\n", millis(), outer, button_push_times[outer]);
+                      if (button_push[0][i] == 0)
+                        break;
+                    }
+                    if (i < 8)
+                    {
+                      // Store the time and the HC address at next unused index in button_push
+                      button_push[0][i] = hc_btn_push_time_ms;
+                      button_push[1][i] = hc_src_addr - 1;
+                    }
+                    else
+                    {
+                      Serial.printf("C0 %6u Error, button_push index too high\n", millis());
                     }
 
-                    for (outer = 0; outer < 8; outer++)
-                    {
-                      smallest_time = 0;
-  //                    Serial.printf("> Outer = %u", outer);
-                      // Find the outerith smallest push time that hasn't been printed yet
-                      for (inner = 0; inner < 8; inner++)
-                      {
-                        if ((button_push_times[inner] != 0) && (printed[inner] != true))
-                        {
-                          if (button_push_times[inner] > smallest_time)
-                          {
-                            smallest_time = button_push_times[inner];
-                            smallest_index = inner;
-                          }
-                        }
-                      }
-  //                    Serial.printf("C0: %6u Smallest = %u at index %u\n", millis(), smallest_time, smallest_index);
-                      // Smallest time should now be shortest unpushed time, at index smallest_index
-                      if (smallest_time != 0)
-                      {
-                        // Print out smallest_index
-  //                      printed[smallest_index] = true;
-  ///// TODO:!!! Convert to new BMP print
-                        // Print out smallest index on screen using bitmap numbers
-                      }
-                    }
+                    // Now print this new hand controller's name (and number) to the display
+                    send_bmp_cmd(hc_to_name_map[hc_src_addr - 1], i * 80, 70);
                   }
                 }
               }
