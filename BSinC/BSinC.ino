@@ -521,6 +521,21 @@ void loop()
 
     rf95.setModeIdle();
 
+    // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
+    // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
+    // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
+    for (i = 0; i < 8; i++) 
+    {
+      if (button_push[0][i] != 0)   // Check the time of each button_push index 
+      {
+        hc_seen_reset[button_push[1][i]] = false;
+      } 
+      else 
+      {
+        hc_seen_reset[button_push[1][i]] = true;
+      }
+    }
+
     memset(button_push, 0x00, sizeof(button_push));
     memset(heartbeat_times, 0x00, sizeof(heartbeat_times));
     memset(hc_btn_order, 0x00, sizeof(hc_btn_order));
@@ -534,25 +549,12 @@ void loop()
 
     any_btn_pushed = false;
 
-    // Figure out which HCs have sent button pushed packets. For those HCs, set the hc_seen_reset to false. For all others
-    // set it to true. When we see a non-button push packet from a HC, we then set it's hc_seen_reset. Once they are all
-    // true, we know that all HCs have been 'reset', and we can finish the reset cycle and start the next game up.
-    for (i = 0; i < 8; i++) {
-      if (button_push[0][i] != 0)   // Check the time of each button_push index 
-      {
-        hc_seen_reset[button_push[1][i]] = false;
-      } else 
-      {
-        hc_seen_reset[button_push[1][i]] = true;
-      }
-    }
-
-    // Set blanking time to ignore any hand controller packets for 1.5s
-    /// TODO: We can make this smarter, right? We can wait for every handle to turn green, then turn off the blanking
-    // packet_rx_resume_time = millis() + 5000;
-    packet_rx_resume_time = millis();
-    // Do not reset the sync time I think - hand controller rely on this being very constant and not changing
-    // next_sync_time = millis() + 1110;
+    // Set blanking time to ignore any hand controller packets for 5 seconds.
+    // This blanking time is a backup - normally we abort it early once we see all HCs that have had button pushes
+    // send us normal (green) handshake packets. But if something bad happens and we don't get all of them to check in
+    // that they've seen the reset, then the blanking time eventually expires and the system reset is considered complete
+    // anyway.
+    packet_rx_resume_time = millis() + 5000;
   }
 
   // Has enough time gone by? Time to send a sync packet?
@@ -696,6 +698,11 @@ void loop()
                 if (packet_rx_resume_time < millis())
                 {
                   packet_rx_resume_time = 0;
+                  // Reset all hc_seen_reset[] to force it to look like they have all seen the reset
+                  for (i=0; i < 8; i++)
+                  {
+                    hc_seen_reset[i] == true;
+                  }
                 }
                 // If we are in a blanking period after a system reset (BS button push), then check to see
                 // if all of the HC that had button pushes have checked in with 'no button push' packets. If not,
@@ -734,6 +741,10 @@ void loop()
                     send_bmp_cmd(BMP_FILE_BUZZER_ACTIVATED, 0, 0);
                   }
 
+                  // Red text for address
+//                    dbg_log(" \033[31;107m%u\033[0m %6u", hc_src_addr, hc_btn_push_time_ms);
+                  dbg_log(" \033[31;107m%u\033[0m", hc_src_addr);
+
                   // Only do stuff if this is the very first button press packet from this hand controller for this question
                   for (i = 0; i < 8; i++)
                   {
@@ -745,9 +756,7 @@ void loop()
 
                   if (i == 8)
                   {
-                    rf95.setModeIdle();
-                    // Red text for address
-                    dbg_log(" \033[31;107m%u\033[0m %6u", hc_src_addr, hc_btn_push_time_ms);
+/// ????                    rf95.setModeIdle();
                     // Find next unused index in the button_push array
                     for (i = 0; i < 8; i++)
                     {
