@@ -315,6 +315,8 @@ char pkt_debug_printf_buf[250] = {0};
 uint8_t pkt_debug_printf_index = 0;
 uint8_t cur_hc_slot = 0;        // Advances as we get packets in
 uint8_t hc_to_name_map[8] = {3, 4, 5, 6, 7, 8, 9, 10};  // Records which bitmap represents the name of the person using each hand controller
+uint32_t reset_state_from_touch;            // Written by C1, read and reset by C0 (note: race condition warning)
+uint8_t sync_skip_counter;              // Counts down to zero. When zero, we skip next sync, to try and reallign hand controllers in time
 
 
 // Global array to store filenames of each BMP file so we can refer to them by numerical index
@@ -325,11 +327,11 @@ static const char * filename_array[] = {
   "/Ania.bmp",
   "/Brian.bmp",
   "/Emily.bmp",
-  "/Grant.bmp",
   "/Jeff.bmp",
   "/Jenny.bmp",
   "/Olga.bmp",
   "/Ryan.bmp",
+  "/Grant.bmp",
   "/0.bmp",
   "/1.bmp",
   "/2.bmp",
@@ -349,11 +351,11 @@ static const char * filename_array[] = {
 #define BMP_FILE_ANIA                         3
 #define BMP_FILE_BRIAN                        4
 #define BMP_FILE_EMLIY                        5
-#define BMP_FILE_GRANT                        6
-#define BMP_FILE_JEFF                         7
-#define BMP_FILE_JENNY                        8
-#define BMP_FILE_OLGA                         9
-#define BMP_FILE_RYAN                         10
+#define BMP_FILE_JEFF                         6
+#define BMP_FILE_JENNY                        7
+#define BMP_FILE_OLGA                         8
+#define BMP_FILE_RYAN                         9
+#define BMP_FILE_GRANT                        10
 #define BMP_FILE_MAX_INDEX                    10
 
 void setup() 
@@ -484,6 +486,8 @@ void setup()
   next_sync_time = millis();
   hc_btn_push_time = 0;
   hc_btn_push_time_ms = 0;
+  reset_state_from_touch = false;
+  sync_skip_counter = 10;
 
   // When non-zero, causes us to ignore all received packets
   packet_rx_resume_time = 0;
@@ -513,11 +517,16 @@ void loop()
   }
 
   // Look for button press to reset our state
-  if ((digitalRead(BUTTON1_PIN) == false) && (any_btn_pushed == true))
+  if (((digitalRead(BUTTON1_PIN) == false) || (reset_state_from_touch == true)) && (any_btn_pushed == true))
   {
     // We have a button press!
     // Record the local time
     btn_press_time = millis();
+
+    if (reset_state_from_touch)
+    {
+      reset_state_from_touch = false;
+    }
 
     rf95.setModeIdle();
 
@@ -548,6 +557,9 @@ void loop()
     send_bmp_cmd(BMP_FILE_NEXT_QUIZ_QUESTION_RESIZED, 0, 0);
 
     any_btn_pushed = false;
+    reset_state_from_touch = false;
+    digitalWrite(BEEPER_PIN, LOW);
+    beeper_off_time = 0;
 
     // Set blanking time to ignore any hand controller packets for 5 seconds.
     // This blanking time is a backup - normally we abort it early once we see all HCs that have had button pushes
@@ -569,66 +581,77 @@ void loop()
     dbg_print_log();
     cur_hc_slot = 1;
   }
-  else if (millis() >= next_sync_time) 
+  else if (millis() >= next_sync_time)
   {
-    cur_hc_slot = 1;
-    next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
-    rf95.setHeaderFrom(10);
-    rf95.setHeaderTo(255); // Broadcast to all hand controllers
-    // Build up status byte based on each hand controller's state
-
-    if (any_btn_pushed)
+    if (sync_skip_counter > 0)
     {
-      sync_pkt[0] = 255;
+      cur_hc_slot = 1;
+      next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
+      rf95.setHeaderFrom(10);
+      rf95.setHeaderTo(255); // Broadcast to all hand controllers
+      // Build up status byte based on each hand controller's state
+
+      if (any_btn_pushed)
+      {
+        sync_pkt[0] = 255;
+      }
+      else
+      {
+        sync_pkt[0] = 0;
+      }
+      // Copy over the current global time as four bytes
+      sync_time_ms = millis();
+      sync_pkt[1] = (sync_time_ms >> 24) & 0xFF;
+      sync_pkt[2] = (sync_time_ms >> 16) & 0xFF;
+      sync_pkt[3] = (sync_time_ms >> 8) & 0xFF;
+      sync_pkt[4] = sync_time_ms & 0xFF;
+
+      // If there is a packet waiting in the radio, flush it before sending
+      packet_len = 10;
+      if (rf95.available())
+      {
+        digitalWrite(DBG0_PIN, HIGH);
+        digitalWrite(DBG3_PIN, HIGH);
+        rf95.recv(packet, &packet_len);
+        digitalWrite(DBG0_PIN, LOW);
+        digitalWrite(DBG3_PIN, LOW);
+      }
+      /// // JUST FOR TESTING: Skip sending every 10th time sync packet
+      ///static int8_t time_sink_skip = 10;
+      ///if (time_sink_skip > 1)
+      ///{
+        digitalWrite(DBG1_PIN, HIGH);
+        rf95.send(sync_pkt, 5);
+        digitalWrite(DBG1_PIN, LOW);
+      ///}
+      ///time_sink_skip--;
+      ///if (time_sink_skip <= 0)
+      ///{
+      ///  time_sink_skip = 10;
+      ///}
+      //delay(2);   /// TODO: Why is this needed? Explain
+
+      // Print out the accumulated debug printf butter
+      dbg_print_log();
+
+      if (any_btn_pushed)
+      {
+        // Red text for red sync packet
+        dbg_log("C0: %6u \033[31;107mSync\033[0m ", sync_time_ms);
+      }
+      else
+      {
+        // Green text for green sync packet
+        dbg_log("C0: %6u \033[32;107mSync\033[0m ", sync_time_ms);
+      }
+      sync_skip_counter--;
     }
     else
     {
-      sync_pkt[0] = 0;
-    }
-    // Copy over the current global time as four bytes
-    sync_time_ms = millis();
-    sync_pkt[1] = (sync_time_ms >> 24) & 0xFF;
-    sync_pkt[2] = (sync_time_ms >> 16) & 0xFF;
-    sync_pkt[3] = (sync_time_ms >> 8) & 0xFF;
-    sync_pkt[4] = sync_time_ms & 0xFF;
-
-    // If there is a packet waiting in the radio, flush it before sending
-    packet_len = 10;
-    if (rf95.available())
-    {
-      digitalWrite(DBG0_PIN, HIGH);
-      digitalWrite(DBG3_PIN, HIGH);
-      rf95.recv(packet, &packet_len);
-      digitalWrite(DBG0_PIN, LOW);
-      digitalWrite(DBG3_PIN, LOW);
-    }
-    /// // JUST FOR TESTING: Skip sending every 10th time sync packet
-    ///static int8_t time_sink_skip = 10;
-    ///if (time_sink_skip > 1)
-    ///{
-      digitalWrite(DBG1_PIN, HIGH);
-      rf95.send(sync_pkt, 5);
-      digitalWrite(DBG1_PIN, LOW);
-    ///}
-    ///time_sink_skip--;
-    ///if (time_sink_skip <= 0)
-    ///{
-    ///  time_sink_skip = 10;
-    ///}
-    //delay(2);   /// TODO: Why is this needed? Explain
-
-    // Print out the accumulated debug printf butter
-    dbg_print_log();
-
-    if (any_btn_pushed)
-    {
-      // Red text for red sync packet
-      dbg_log("C0: %6u \033[31;107mSync\033[0m ", sync_time_ms);
-    }
-    else
-    {
-      // Green text for green sync packet
-      dbg_log("C0: %6u \033[32;107mSync\033[0m ", sync_time_ms);
+      // sync_skip_counter is now at zero. Skip sending a sync packet this time.
+      sync_skip_counter = 10;
+      cur_hc_slot = 1;
+      next_sync_time = millis() + TIME_SYNC_PACKET_PERIOD_MS;
     }
   }
 
@@ -723,6 +746,11 @@ void loop()
                     // be in a blanking period anymore
                     packet_rx_resume_time = 0;
                   }
+                  else
+                  {
+                    // Blue text for address - indicates "In blanking period"
+                    dbg_log(" \033[34;107m%u\033[0m", hc_src_addr);
+                  }
                 }
 
                 if (!packet_rx_resume_time)
@@ -732,7 +760,7 @@ void loop()
                   if (any_btn_pushed == false)
                   {
                     // Yes, then start the bepper up
-                    //digitalWrite(BEEPER_PIN, HIGH);
+                    digitalWrite(BEEPER_PIN, HIGH);
                     any_btn_pushed = true;
                     beeper_off_time = millis() + 2000;
 
@@ -742,7 +770,6 @@ void loop()
                   }
 
                   // Red text for address
-//                    dbg_log(" \033[31;107m%u\033[0m %6u", hc_src_addr, hc_btn_push_time_ms);
                   dbg_log(" \033[31;107m%u\033[0m", hc_src_addr);
 
                   // Only do stuff if this is the very first button press packet from this hand controller for this question
@@ -751,12 +778,8 @@ void loop()
                     if (button_push[1][i] == (hc_src_addr - 1))
                       break;
                   }
-
-//Serial.printf("%u push, found alread at button_push index %u\n", hc_src_addr - 1, i);
-
                   if (i == 8)
                   {
-/// ????                    rf95.setModeIdle();
                     // Find next unused index in the button_push array
                     for (i = 0; i < 8; i++)
                     {
@@ -857,6 +880,7 @@ void send_bmp_cmd(uint8_t bitmap_index, uint16_t x, uint16_t y)
 void touch_ISR(void)
 {
   user_touch_happened = true;
+  reset_state_from_touch = true;
 }
 
 void setup1(void)
